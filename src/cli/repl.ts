@@ -4,7 +4,8 @@ import { lastAssistantText } from "../core/loop.js";
 
 /** repl 依赖的最小会话能力：结构化类型，测试可注入 fake */
 export interface TurnRunner {
-  runTurn(text: string): Promise<ChatMessage[]>;
+  newSession(): ChatMessage[];
+  runTurn(messages: ChatMessage[], text: string): Promise<void>;
 }
 
 export interface ReplIO {
@@ -29,6 +30,7 @@ export function makeReadlineIO(): ReplIO {
 
 export async function repl(agent: TurnRunner, io: ReplIO): Promise<void> {
   io.print("blh — type 'exit' to quit");
+  const messages = agent.newSession();
   for (;;) {
     const line = await io.readLine();
     if (line === null) {
@@ -38,7 +40,7 @@ export async function repl(agent: TurnRunner, io: ReplIO): Promise<void> {
     const text = line.trim();
     if (text === "exit" || text === "quit") break;
     if (!text) continue;
-    const messages = await agent.runTurn(text);
+    await agent.runTurn(messages, text);
     io.print(lastAssistantText(messages));
   }
 }

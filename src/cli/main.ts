@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import readline from "node:readline";
+import { pathToFileURL } from "node:url";
 import { loadConfig } from "../core/config.js";
 import { Harness } from "../core/harness.js";
 import { HookBus, PRE_TOOL_USE } from "../core/hooks.js";
@@ -43,14 +44,21 @@ async function main(): Promise<void> {
       console.error("usage: blh -p <text>");
       process.exit(1);
     }
-    const messages = await harness.runTurn(text);
+    const messages = harness.newSession();
+    await harness.runTurn(messages, text);
     console.log(lastAssistantText(messages));
     return;
   }
   await repl(harness, makeReadlineIO());
 }
 
-main().catch((error: unknown) => {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exit(1);
-});
+const isDirectRun =
+  process.argv[1] !== undefined &&
+  import.meta.url === pathToFileURL(process.argv[1]).href;
+
+if (isDirectRun) {
+  main().catch((error: unknown) => {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exit(1);
+  });
+}

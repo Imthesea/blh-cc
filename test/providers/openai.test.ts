@@ -70,3 +70,20 @@ describe("OpenAIProvider", () => {
     vi.useRealTimers();
   });
 });
+
+describe("isPromptTooLong", () => {
+  it("400 + 关键词判定为上下文超长", async () => {
+    const { isPromptTooLong } = await import("../../src/providers/openai.js");
+    const badRequest = (text: string) =>
+      Object.assign(new Error(text), { status: 400 });
+    expect(isPromptTooLong(badRequest("prompt_too_long: ..."))).toBe(true);
+    expect(
+      isPromptTooLong(badRequest("This model's maximum context length is 65536")),
+    ).toBe(true);
+    expect(isPromptTooLong(badRequest("too many tokens in prompt"))).toBe(true);
+    expect(isPromptTooLong(badRequest("context_length_exceeded"))).toBe(true);
+    expect(isPromptTooLong(badRequest("invalid api key"))).toBe(false);
+    expect(isPromptTooLong(new Error("prompt_too_long"))).toBe(false); // 无 400
+    expect(isPromptTooLong("prompt_too_long")).toBe(false); // 非 Error
+  });
+});

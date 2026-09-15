@@ -49,7 +49,8 @@ describe("agent end-to-end", () => {
       makeToolCallMessage("read_file", { path: "hello.txt" }, "c2"),
       makeTextMessage("I wrote hello.txt and read it back: world"),
     ]);
-    const messages = await harness.runTurn("create and verify hello.txt");
+    const messages = harness.newSession();
+    await harness.runTurn(messages, "create and verify hello.txt");
     await expect(fs.readFile(path.join(tempDir, "hello.txt"), "utf8")).resolves.toBe(
       "world",
     );
@@ -67,7 +68,8 @@ describe("agent end-to-end", () => {
       ],
       "n",
     );
-    const messages = await harness.runTurn("list files");
+    const messages = harness.newSession();
+    await harness.runTurn(messages, "list files");
     const toolResults = messages.filter((message) => message.role === "tool");
     expect(toolResults[0]?.content).toBe("denied by user");
   });
@@ -80,7 +82,8 @@ describe("agent end-to-end", () => {
       ],
       "y", // 即使答 y 也不应被问到
     );
-    const messages = await harness.runTurn("force push");
+    const messages = harness.newSession();
+    await harness.runTurn(messages, "force push");
     const toolResults = messages.filter((message) => message.role === "tool");
     expect(toolResults[0]?.content).toBe(
       "denied by permission rule (bash: git push --force)",

@@ -2,13 +2,15 @@ import { describe, it, expect, vi } from "vitest";
 import { repl } from "../../src/cli/repl.js";
 import type { TurnRunner } from "../../src/cli/repl.js";
 import { makeTextMessage } from "../integration/helpers.js";
+import type { ChatMessage } from "../../src/core/types.js";
 
 function fakeRunner(replies: string[]): TurnRunner {
   let replyIndex = 0;
   return {
-    runTurn: vi.fn(async () => {
+    newSession: () => [],
+    runTurn: vi.fn(async (messages: ChatMessage[], _text: string) => {
       const reply = replies[replyIndex++] ?? "";
-      return [makeTextMessage(reply)];
+      messages.push(makeTextMessage(reply));
     }),
   };
 }
