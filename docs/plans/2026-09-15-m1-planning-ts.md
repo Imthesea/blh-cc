@@ -103,6 +103,10 @@ describe("TodoManager", () => {
     expect(() => new TodoManager().update({ content: "a" })).toThrow("todos must be a list");
   });
 
+  it("update rejects non-object elements", () => {
+    expect(() => new TodoManager().update([null])).toThrow("each todo must be an object");
+  });
+
   it("update rejects empty content", () => {
     expect(() => new TodoManager().update([{ content: "  " }])).toThrow("todo content cannot be empty");
   });
@@ -205,7 +209,7 @@ export class TodoManager {
 - [ ] **步骤 4：运行测试验证通过**
 
 运行：`pnpm vitest run test/planning/todo.test.ts`
-预期：PASS（9 个测试）
+预期：PASS（10 个测试）
 
 - [ ] **步骤 5：Commit**
 

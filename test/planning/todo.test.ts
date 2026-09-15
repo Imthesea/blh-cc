@@ -26,6 +26,10 @@ describe("TodoManager", () => {
     expect(() => new TodoManager().update({ content: "a" })).toThrow("todos must be a list");
   });
 
+  it("update rejects non-object elements", () => {
+    expect(() => new TodoManager().update([null])).toThrow("each todo must be an object");
+  });
+
   it("update rejects empty content", () => {
     expect(() => new TodoManager().update([{ content: "  " }])).toThrow("todo content cannot be empty");
   });
