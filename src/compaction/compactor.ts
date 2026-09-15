@@ -189,10 +189,9 @@ export class ContextCompactor {
     if (messages.length <= maxMessages) return messages;
     let headEnd = 3;
     let tailStart = messages.length - (maxMessages - headEnd - 1);
-    if (ContextCompactor.hasToolUse(messages[headEnd - 1] ?? { role: "user", content: null })) {
-      while (headEnd < tailStart && ContextCompactor.isToolResult(messages[headEnd] ?? { role: "user", content: null })) {
-        headEnd += 1;
-      }
+    // 头部配对保护：headEnd 落在 tool 段中间时向后吞并到段尾，保证 assistant(tool_calls) 与其 tool 结果不被切开
+    while (headEnd < tailStart && ContextCompactor.isToolResult(messages[headEnd] ?? { role: "user", content: null })) {
+      headEnd += 1;
     }
     if (tailStart > 0 && ContextCompactor.isToolResult(messages[tailStart] ?? { role: "user", content: null })) {
       // 切点落在 tool 段中间：回退整段，再把产生它们的 assistant 拉进 tail

@@ -60,20 +60,29 @@ function userMsg(text: string): ChatMessage {
   return { role: "user", content: text };
 }
 
-/** 每条 role=tool 消息的 toolCallId 都能在前面找到对应调用。（任务 3 起使用） */
+/** 每条 role=tool 消息都能在前面找到对应调用，且每个 tool_call 都有对应结果 */
 export function assertNoOrphanToolResults(messages: ChatMessage[]): void {
-  const seenIds = new Set<string>();
+  const pending = new Map<string, number>();
   for (const msg of messages) {
     if (msg.role === "assistant") {
       for (const call of msg.tool_calls ?? []) {
-        seenIds.add(call.id);
+        pending.set(call.id, (pending.get(call.id) ?? 0) + 1);
       }
     }
     if (msg.role === "tool") {
-      if (!msg.tool_call_id || !seenIds.has(msg.tool_call_id)) {
+      if (!msg.tool_call_id) {
+        throw new Error(`tool result missing tool_call_id: ${JSON.stringify(messages)}`);
+      }
+      const remaining = pending.get(msg.tool_call_id);
+      if (remaining === undefined) {
         throw new Error(`orphan tool result: ${JSON.stringify(messages)}`);
       }
+      if (remaining <= 1) pending.delete(msg.tool_call_id);
+      else pending.set(msg.tool_call_id, remaining - 1);
     }
+  }
+  if (pending.size > 0) {
+    throw new Error(`assistant tool_calls with no result: ${Array.from(pending.keys()).join(", ")}`);
   }
 }
 
@@ -272,5 +281,24 @@ describe("ContextCompactor 消息判定原语", () => {
     expect(existsSync(savedPath)).toBe(true);
     expect(readFileSync(savedPath, "utf8").split("\n").filter(Boolean)).toHaveLength(10);
     expect(compactor.snipCompact([...compacted], 6)).toEqual(compacted);
+  });
+
+  it("snipCompact 多 tool_call 横跨头部切点时不拆配对", () => {
+    const compactor = makeCompactor(tmpDir);
+    const messages: ChatMessage[] = [
+      { role: "system", content: "sys" }, // 0
+      assistantToolCalls("t1", "t2", "t3"), // 1 assistant 声明 3 个并行调用
+      toolResult("t1", "r1"), // 2
+      toolResult("t2", "r2"), // 3
+      toolResult("t3", "r3"), // 4
+      userMsg("u2"), // 5
+      textMsg("a2"), // 6
+      userMsg("u3"), // 7
+      textMsg("a3"), // 8
+      userMsg("u4"), // 9
+    ];
+    const compacted = compactor.snipCompact([...messages], 6);
+    assertNoOrphanToolResults(compacted);
+    expect(compacted.filter((m) => m.role === "tool")).toHaveLength(3);
   });
 });
