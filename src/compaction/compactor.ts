@@ -93,7 +93,7 @@ export class ContextCompactor {
     const safeId =
       toolCallId
         .replace(/[^A-Za-z0-9._-]/g, "_")
-        .replace(/\.{2,}/g, "_")
+        .replace(/\.{2,}/g, "_") // 折叠连续点号，杜绝净化后残留 ".."
         .slice(0, 120) || "unknown";
     const filePath = path.join(this.toolResultsDir, `${safeId}.txt`);
     writeFileSync(filePath, output, "utf8");
