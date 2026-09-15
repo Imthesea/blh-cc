@@ -14,6 +14,9 @@ import { registerBuiltinTools } from "../tools/index.js";
 import { DEFAULT_RULES } from "../security/rules.js";
 import { makePermissionHook } from "../security/approval.js";
 import { repl, makeReadlineIO } from "./repl.js";
+import { TaskStore } from "../planning/tasks.js";
+import { TodoManager } from "../planning/todo.js";
+import { registerPlanningTools } from "../planning/tools.js";
 
 export function buildHarness(workdir?: string): Harness {
   const config = loadConfig(workdir);
@@ -35,13 +38,16 @@ export function buildHarness(workdir?: string): Harness {
   });
   hooks.register(PRE_TOOL_USE, (payload) => permissionHook(payload.name, payload.input));
   registerCompactTool(tools);
+  const todoManager = new TodoManager();
+  const taskStore = new TaskStore(path.join(config.workdir, ".tasks"));
+  registerPlanningTools(tools, todoManager, taskStore);
   const compactor = new ContextCompactor({
     provider,
     transcriptDir: path.join(config.workdir, ".transcripts"),
     toolResultsDir: path.join(config.workdir, ".task_outputs", "tool-results"),
     notify: (message) => console.log(message),
   });
-  return new Harness(config, provider, tools, hooks, compactor);
+  return new Harness(config, provider, tools, hooks, compactor, todoManager);
 }
 
 async function main(): Promise<void> {

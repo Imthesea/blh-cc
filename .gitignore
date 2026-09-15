@@ -5,3 +5,4 @@ dist/
 .pnpm-cache/
 .transcripts/
 .task_outputs/
+.tasks/

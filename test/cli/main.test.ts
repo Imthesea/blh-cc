@@ -28,4 +28,17 @@ describe("buildHarness 装配", () => {
     );
     expect(harness.tools.list().map((tool) => tool.name)).toContain("compact");
   });
+
+  it("planning 工具与 todoManager 就位", async () => {
+    const { buildHarness } = await import("../../src/cli/main.js");
+    const harness = buildHarness(tmpDir);
+    expect(harness.todoManager).toBeDefined();
+    const names = harness.tools.list().map((tool) => tool.name);
+    for (const name of [
+      "todo_write", "create_task", "update_task", "list_tasks",
+      "get_task", "claim_task", "complete_task",
+    ]) {
+      expect(names).toContain(name);
+    }
+  });
 });
