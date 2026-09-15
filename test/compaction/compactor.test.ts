@@ -1,5 +1,5 @@
 // test/compaction/compactor.test.ts
-import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -193,5 +193,84 @@ describe("ContextCompactor 消息判定原语", () => {
     expect(first).toContain(savedLine);
     const files = readdirSync(compactor.toolResultsDir).filter((f) => f.endsWith(".txt"));
     expect(files).toHaveLength(1);
+  });
+
+  it("toolResultBudget 末尾批次超预算时最大结果落盘", () => {
+    const compactor = makeCompactor(tmpDir);
+    const big = "b".repeat(ContextCompactor.LARGE_RESULT_CHAR_LIMIT + 1);
+    const small = "s".repeat(100);
+    // 末尾一批（连续 role=tool 段）总量超 maxChars 才处理；直接传 maxChars 模拟预算受限
+    const messages = [
+      assistantToolCalls("big", "small"),
+      toolResult("big", big),
+      toolResult("small", small),
+    ];
+    const result = compactor.toolResultBudget(messages, small.length + 1000);
+    expect(result[1]?.content?.startsWith("<persisted-output>")).toBe(true);
+    expect(result[2]?.content).toBe(small);
+    const savedLine = result[1]?.content?.split("\n")[1] ?? "";
+    expect(readFileSync(savedLine.replace("Full output: ", ""), "utf8")).toBe(big);
+  });
+
+  it("toolResultBudget 末尾非 tool 时原样返回（同一引用）", () => {
+    const compactor = makeCompactor(tmpDir);
+    const messages = [toolResult("c1", "x".repeat(40000)), textMsg("done")];
+    expect(compactor.toolResultBudget(messages)).toBe(messages);
+  });
+
+  it("snipCompact 保护头部 tool 配对", () => {
+    const compactor = makeCompactor(tmpDir);
+    const messages = [
+      { role: "system", content: "sys" } as ChatMessage, // 0
+      userMsg("u1"),               // 1
+      assistantToolCalls("head-tool"), // 2 head 末尾带 tool_calls
+      toolResult("head-tool", "ok"),   // 3 必须并入 head
+      textMsg("a1"),               // 4
+      userMsg("u2"),               // 5
+      textMsg("a2"),               // 6
+      userMsg("u3"),               // 7
+      textMsg("a3"),               // 8
+      userMsg("u4"),               // 9
+    ];
+    const compacted = compactor.snipCompact([...messages], 6);
+    expect(compacted[2]).toEqual(messages[2]);
+    expect(compacted[3]).toEqual(messages[3]);
+    assertNoOrphanToolResults(compacted);
+    // 幂等：再次 snip 不再变化
+    expect(compactor.snipCompact([...compacted], 6)).toEqual(compacted);
+  });
+
+  it("snipCompact 保护尾部 tool 配对", () => {
+    const compactor = makeCompactor(tmpDir);
+    const messages = [
+      { role: "system", content: "sys" } as ChatMessage, // 0
+      userMsg("u1"),               // 1
+      textMsg("a1"),               // 2
+      userMsg("u2"),               // 3
+      textMsg("a2"),               // 4
+      userMsg("u3"),               // 5
+      textMsg("a3"),               // 6
+      assistantToolCalls("tail-tool"), // 7 tailStart 落在 8
+      toolResult("tail-tool", "ok"),   // 8 ← 切点，assistant 须拉进 tail
+      textMsg("a4"),               // 9
+    ];
+    const compacted = compactor.snipCompact([...messages], 6);
+    assertNoOrphanToolResults(compacted);
+    expect(compacted[compacted.length - 3]).toEqual(messages[7]);
+  });
+
+  it("snipCompact 归档完整历史并可幂等", () => {
+    const compactor = makeCompactor(tmpDir);
+    const messages: ChatMessage[] = [{ role: "system", content: "sys" }];
+    for (let i = 0; i < 9; i++) {
+      messages.push({ role: i % 2 === 0 ? "user" : "assistant", content: `m${i}` });
+    }
+    const compacted = compactor.snipCompact([...messages], 6);
+    expect(compacted).toHaveLength(6);
+    const marker = compacted[3]?.content ?? "";
+    const savedPath = marker.slice(marker.lastIndexOf(" at ") + 4, -1);
+    expect(existsSync(savedPath)).toBe(true);
+    expect(readFileSync(savedPath, "utf8").split("\n").filter(Boolean)).toHaveLength(10);
+    expect(compactor.snipCompact([...compacted], 6)).toEqual(compacted);
   });
 });

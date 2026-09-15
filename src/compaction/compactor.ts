@@ -142,4 +142,75 @@ export class ContextCompactor {
     if (output.length <= ContextCompactor.LARGE_RESULT_CHAR_LIMIT) return output;
     return this.persistedPreview(toolCallId, output);
   }
+
+  /** 读取 tool 消息文本内容（null → ""），杜绝 as 断言 */
+  private static contentOf(message: ChatMessage): string {
+    return message.content ?? "";
+  }
+
+  /** 末尾一批工具结果总量超预算时，从最大的开始落盘留预览 */
+  toolResultBudget(messages: ChatMessage[], maxChars?: number): ChatMessage[] {
+    const batch: ChatMessage[] = [];
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const msg = messages[i];
+      if (!msg || msg.role !== "tool") break;
+      batch.push(msg);
+    }
+    if (batch.length === 0) return messages;
+    const limit = maxChars ?? ContextCompactor.TOOL_RESULT_BATCH_CHAR_LIMIT;
+    let total = batch.reduce((sum, m) => sum + ContextCompactor.contentOf(m).length, 0);
+    const sorted = [...batch].sort(
+      (a, b) => ContextCompactor.contentOf(b).length - ContextCompactor.contentOf(a).length,
+    );
+    for (const msg of sorted) {
+      if (total <= limit) break;
+      const output = ContextCompactor.contentOf(msg);
+      if (output.length <= ContextCompactor.LARGE_RESULT_CHAR_LIMIT) continue;
+      msg.content = this.persistLargeOutput(msg.tool_call_id ?? "unknown", output);
+      total = batch.reduce((sum, m) => sum + ContextCompactor.contentOf(m).length, 0);
+    }
+    return messages;
+  }
+
+  isArchiveMarker(message: ChatMessage): boolean {
+    const content = message.content;
+    if (content === null) return false;
+    const match = /^\[\d+ messages archived at (.+)\]$/.exec(content);
+    const candidate = match?.[1];
+    if (!candidate) return false;
+    return (
+      ContextCompactor.isInsideDir(candidate, this.transcriptDir) &&
+      ContextCompactor.isFile(candidate)
+    );
+  }
+
+  /** 消息数超限时归档中段，留头 3 条 + 尾部；保护 tool 配对边界 */
+  snipCompact(messages: ChatMessage[], maxMessages = 50): ChatMessage[] {
+    if (messages.length <= maxMessages) return messages;
+    let headEnd = 3;
+    let tailStart = messages.length - (maxMessages - headEnd - 1);
+    if (ContextCompactor.hasToolUse(messages[headEnd - 1] ?? { role: "user", content: null })) {
+      while (headEnd < tailStart && ContextCompactor.isToolResult(messages[headEnd] ?? { role: "user", content: null })) {
+        headEnd += 1;
+      }
+    }
+    if (tailStart > 0 && ContextCompactor.isToolResult(messages[tailStart] ?? { role: "user", content: null })) {
+      // 切点落在 tool 段中间：回退整段，再把产生它们的 assistant 拉进 tail
+      while (tailStart > 1 && ContextCompactor.isToolResult(messages[tailStart - 1] ?? { role: "user", content: null })) {
+        tailStart -= 1;
+      }
+      tailStart -= 1;
+    }
+    if (headEnd >= tailStart) return messages;
+    const middle = messages.slice(headEnd, tailStart);
+    if (middle.length === 1 && middle[0] && this.isArchiveMarker(middle[0])) {
+      return messages;
+    }
+    const transcriptPath = this.writeTranscript(messages);
+    const marker: ChatMessage = {
+      role: "user",
+      content: `[${tailStart - headEnd} messages archived at ${transcriptPath}]`,
+    };
+    return [...messages.slice(0, headEnd), marker, ...messages.slice(tailStart)];
+  }
 }
