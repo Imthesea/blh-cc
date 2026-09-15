@@ -46,7 +46,12 @@ export async function agentLoop(
     } catch (error) {
       if (compactor && isPromptTooLong(error) && reactiveRetries < MAX_REACTIVE_RETRIES) {
         const compacted = await compactor.reactiveCompact(messages, activeRequest);
-        messages.splice(0, messages.length, ...compacted);
+        messages.splice(
+          0,
+          messages.length,
+          { role: "system", content: harness.systemPrompt },
+          ...compacted,
+        );
         reactiveRetries += 1;
         continue;
       }
@@ -79,7 +84,12 @@ export async function agentLoop(
 
     if (compactRequested && compactor) {
       const compacted = await compactor.compactHistory(messages, activeRequest);
-      messages.splice(0, messages.length, ...compacted);
+      messages.splice(
+        0,
+        messages.length,
+        { role: "system", content: harness.systemPrompt },
+        ...compacted,
+      );
     }
   }
 }

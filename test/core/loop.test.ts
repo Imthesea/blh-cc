@@ -178,8 +178,8 @@ describe("agentLoop 压缩集成", () => {
     await harness.runTurn(messages, "hi");
     expect(provider.calls).toBe(3);
     expect(lastAssistantText(messages)).toBe("recovered");
-    expect(messages[0]?.role).toBe("user");
-    expect(messages[0]?.content?.startsWith("[Reactive compact]")).toBe(true);
+    expect(messages[0]?.role).toBe("system");
+    expect(messages[1]?.content?.startsWith("[Reactive compact]")).toBe(true);
   });
 
   it("重试耗尽后原样抛出", async () => {
@@ -240,12 +240,13 @@ describe("agentLoop 压缩集成", () => {
     await harness.runTurn(messages, "note then compact");
     // 同批 write_note 的副作用在压缩前完成，不丢失
     expect(sideEffects).toEqual(["hello"]);
-    expect(messages).toHaveLength(2); // [Compacted] 摘要 + 最终答复
-    expect(messages[0]?.content?.startsWith("[Compacted]")).toBe(true);
-    expect(messages[0]?.content).toContain(
+    expect(messages).toHaveLength(3); // system + [Compacted] 摘要 + 最终答复
+    expect(messages[0]?.role).toBe("system");
+    expect(messages[1]?.content?.startsWith("[Compacted]")).toBe(true);
+    expect(messages[1]?.content).toContain(
       "Current user request:\nnote then compact",
     );
-    expect(messages[0]?.content).toContain("conversation summary");
+    expect(messages[1]?.content).toContain("conversation summary");
     const transcripts = readdirSync(path.join(tmpDir, ".transcripts")).filter((f) =>
       f.endsWith(".jsonl"),
     );

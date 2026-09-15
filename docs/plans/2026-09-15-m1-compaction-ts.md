@@ -1481,8 +1481,8 @@ describe("agentLoop 压缩集成", () => {
     await harness.runTurn(messages, "hi");
     expect(provider.calls).toBe(3);
     expect(lastAssistantText(messages)).toBe("recovered");
-    expect(messages[0]?.role).toBe("user");
-    expect(messages[0]?.content?.startsWith("[Reactive compact]")).toBe(true);
+    expect(messages[0]?.role).toBe("system");
+    expect(messages[1]?.content?.startsWith("[Reactive compact]")).toBe(true);
   });
 
   it("重试耗尽后原样抛出", async () => {
@@ -1543,12 +1543,13 @@ describe("agentLoop 压缩集成", () => {
     await harness.runTurn(messages, "note then compact");
     // 同批 write_note 的副作用在压缩前完成，不丢失
     expect(sideEffects).toEqual(["hello"]);
-    expect(messages).toHaveLength(2); // [Compacted] 摘要 + 最终答复
-    expect(messages[0]?.content?.startsWith("[Compacted]")).toBe(true);
-    expect(messages[0]?.content).toContain(
+    expect(messages).toHaveLength(3); // system + [Compacted] 摘要 + 最终答复
+    expect(messages[0]?.role).toBe("system");
+    expect(messages[1]?.content?.startsWith("[Compacted]")).toBe(true);
+    expect(messages[1]?.content).toContain(
       "Current user request:\nnote then compact",
     );
-    expect(messages[0]?.content).toContain("conversation summary");
+    expect(messages[1]?.content).toContain("conversation summary");
     const transcripts = readdirSync(path.join(tmpDir, ".transcripts")).filter((f) =>
       f.endsWith(".jsonl"),
     );
@@ -1736,7 +1737,12 @@ export async function agentLoop(
     } catch (error) {
       if (compactor && isPromptTooLong(error) && reactiveRetries < MAX_REACTIVE_RETRIES) {
         const compacted = await compactor.reactiveCompact(messages, activeRequest);
-        messages.splice(0, messages.length, ...compacted);
+        messages.splice(
+          0,
+          messages.length,
+          { role: "system", content: harness.systemPrompt },
+          ...compacted,
+        );
         reactiveRetries += 1;
         continue;
       }
@@ -1769,7 +1775,12 @@ export async function agentLoop(
 
     if (compactRequested && compactor) {
       const compacted = await compactor.compactHistory(messages, activeRequest);
-      messages.splice(0, messages.length, ...compacted);
+      messages.splice(
+        0,
+        messages.length,
+        { role: "system", content: harness.systemPrompt },
+        ...compacted,
+      );
     }
   }
 }
@@ -1779,6 +1790,7 @@ export async function agentLoop(
 - 蓝本 `messages[:] = new_list` 原地替换 → `messages.splice(0, messages.length, ...newList)`（调用方持有同一数组引用，压缩结果跨轮可见）。
 - `compact` 拦截条件带 `compactor &&`：无 compactor 时 compact 走普通 dispatch（注册的工具 handler 返回同一提示文案，行为不退化）。
 - 反应式重试只针对 `isPromptTooLong` 且最多 1 次；其他错误原样抛出。
+- 压缩后 splice 前置 system 消息：`compactHistory`/`reactiveCompact` 只返回 user 摘要，若不重挂 system，身份/工具指令/防护指引会丢失。
 - 无循环引用风险：loop → providers/openai（openai 只依赖 types/retry）；harness → compaction 仅 type-only import。
 
 **`src/cli/repl.ts` 修改：**
