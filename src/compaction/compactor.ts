@@ -172,6 +172,56 @@ export class ContextCompactor {
     return messages;
   }
 
+  /** 已消费的旧结果（除最近 KEEP_RECENT_RESULTS 条）落盘并替换为路径引用 */
+  microCompact(messages: ChatMessage[], targetChars?: number): ChatMessage[] {
+    const unseen = this.unseenToolResultPositions(messages);
+    const consumed: ChatMessage[] = [];
+    messages.forEach((msg, index) => {
+      if (msg.role === "tool" && !unseen.has(index)) consumed.push(msg);
+    });
+    const stale = consumed.slice(
+      0,
+      Math.max(0, consumed.length - ContextCompactor.KEEP_RECENT_RESULTS),
+    );
+    for (const msg of stale) {
+      if (
+        targetChars !== undefined &&
+        ContextCompactor.estimateChars(messages) <= targetChars
+      ) {
+        break;
+      }
+      const content = ContextCompactor.contentOf(msg);
+      if (content.length <= 120) continue;
+      const savedPath =
+        this.persistedOutputPath(content) ??
+        this.saveOutput(msg.tool_call_id ?? "unknown", content);
+      msg.content = `[Earlier tool result saved at ${savedPath}]`;
+    }
+    return messages;
+  }
+
+  /** 仍超限时，从最大的结果（含未读）开始落盘并保留 1000 字符预览 */
+  fitToolResults(messages: ChatMessage[], targetChars: number): ChatMessage[] {
+    const results = messages.filter((msg) => msg.role === "tool");
+    const sorted = [...results].sort(
+      (a, b) =>
+        ContextCompactor.contentOf(b).length - ContextCompactor.contentOf(a).length,
+    );
+    for (const msg of sorted) {
+      if (ContextCompactor.estimateChars(messages) <= targetChars) break;
+      const output = ContextCompactor.contentOf(msg);
+      const replacement = this.persistedPreview(
+        msg.tool_call_id ?? "unknown",
+        output,
+        1000,
+      );
+      if (replacement.length < output.length) {
+        msg.content = replacement;
+      }
+    }
+    return messages;
+  }
+
   isArchiveMarker(message: ChatMessage): boolean {
     const content = message.content;
     if (content === null) return false;

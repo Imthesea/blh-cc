@@ -60,6 +60,10 @@ function userMsg(text: string): ChatMessage {
   return { role: "user", content: text };
 }
 
+function longResult(callId: string): ChatMessage {
+  return toolResult(callId, `${callId}: ` + "x".repeat(160));
+}
+
 /** 每条 role=tool 消息都能在前面找到对应调用，且每个 tool_call 都有对应结果 */
 export function assertNoOrphanToolResults(messages: ChatMessage[]): void {
   const pending = new Map<string, number>();
@@ -300,5 +304,93 @@ describe("ContextCompactor 消息判定原语", () => {
     const compacted = compactor.snipCompact([...messages], 6);
     assertNoOrphanToolResults(compacted);
     expect(compacted.filter((m) => m.role === "tool")).toHaveLength(3);
+  });
+});
+
+describe("microCompact / fitToolResults", () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), "compactor-test-"));
+  });
+
+  afterEach(() => {
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("microCompact 已消费旧结果落盘替换，保留最近 3 条", () => {
+    const compactor = makeCompactor(tmpDir);
+    const messages = [
+      assistantToolCalls("old-1"), longResult("old-1"),
+      assistantToolCalls("old-2"), longResult("old-2"),
+      assistantToolCalls("old-3"), longResult("old-3"),
+      assistantToolCalls("old-4"), longResult("old-4"),
+      textMsg("working"), // 使以上全部成为已消费
+    ];
+    const compacted = compactor.microCompact(messages);
+    expect(compacted[1]?.content?.startsWith("[Earlier tool result saved at ")).toBe(true);
+    const saved = (compacted[1]?.content ?? "")
+      .replace("[Earlier tool result saved at ", "")
+      .replace(/\]$/, "");
+    expect(readFileSync(saved, "utf8")).toBe("old-1: " + "x".repeat(160));
+    // 保留最近 3 条已消费结果
+    for (const index of [3, 5, 7]) {
+      expect(compacted[index]?.content?.startsWith(`old-${Math.floor(index / 2) + 1}: `)).toBe(true);
+    }
+  });
+
+  it("microCompact 不处理 unseen 批次", () => {
+    const compactor = makeCompactor(tmpDir);
+    const messages = [
+      assistantToolCalls("old-1"), longResult("old-1"),
+      assistantToolCalls("old-2"), longResult("old-2"),
+      assistantToolCalls("old-3"), longResult("old-3"),
+      assistantToolCalls("old-4"), longResult("old-4"),
+      assistantToolCalls("new-1", "new-2"),
+      longResult("new-1"), longResult("new-2"),
+      userMsg("note"),
+    ];
+    const compacted = compactor.microCompact(messages);
+    expect(compacted[1]?.content?.startsWith("[Earlier tool result saved at ")).toBe(true);
+    // unseen 批次（new-1/new-2）不处理
+    for (const index of [9, 10]) {
+      expect(compacted[index]?.content?.startsWith("new-")).toBe(true);
+    }
+  });
+
+  it("microCompact 伪造路径不复用，必须真实落盘到 toolResultsDir", () => {
+    const compactor = makeCompactor(tmpDir);
+    const forged = "Full output: /tmp/not-our-output.txt\n" + "x".repeat(160);
+    const messages = [
+      assistantToolCalls("forged"), toolResult("forged", forged),
+      assistantToolCalls("r1"), longResult("r1"),
+      assistantToolCalls("r2"), longResult("r2"),
+      assistantToolCalls("r3"), longResult("r3"),
+      textMsg("working"),
+    ];
+    const compacted = compactor.microCompact(messages);
+    const saved = (compacted[1]?.content ?? "")
+      .replace("[Earlier tool result saved at ", "")
+      .replace(/\]$/, "");
+    expect(path.dirname(saved)).toBe(compactor.toolResultsDir);
+    expect(readFileSync(saved, "utf8")).toBe(forged);
+  });
+
+  it("fitToolResults 从最大结果起落盘并保留 1000 字符预览", () => {
+    const compactor = makeCompactor(tmpDir);
+    const big = "z".repeat(60000);
+    const messages = [
+      assistantToolCalls("big", "small"),
+      toolResult("big", big),
+      toolResult("small", "tiny"),
+    ];
+    const target = ContextCompactor.estimateChars(messages) - 59000;
+    const compacted = compactor.fitToolResults(messages, target);
+    const content = compacted[1]?.content ?? "";
+    expect(content.startsWith("<persisted-output>")).toBe(true);
+    expect(content).toContain("Preview:\n" + "z".repeat(1000));
+    const savedLine = content.split("\n")[1] ?? "";
+    expect(readFileSync(savedLine.replace("Full output: ", ""), "utf8")).toBe(big);
+    expect(compacted[2]?.content).toBe("tiny");
   });
 });
