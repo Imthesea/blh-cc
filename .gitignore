@@ -3,3 +3,5 @@ dist/
 .env
 .pnpm-store/
 .pnpm-cache/
+.transcripts/
+.task_outputs/

@@ -1,7 +1,10 @@
 #!/usr/bin/env node
 import readline from "node:readline";
+import * as path from "node:path";
 import { pathToFileURL } from "node:url";
 import { loadConfig } from "../core/config.js";
+import { ContextCompactor } from "../compaction/compactor.js";
+import { registerCompactTool } from "../compaction/compactTool.js";
 import { Harness } from "../core/harness.js";
 import { HookBus, PRE_TOOL_USE } from "../core/hooks.js";
 import { lastAssistantText } from "../core/loop.js";
@@ -31,7 +34,14 @@ export function buildHarness(workdir?: string): Harness {
     );
   });
   hooks.register(PRE_TOOL_USE, (payload) => permissionHook(payload.name, payload.input));
-  return new Harness(config, provider, tools, hooks);
+  registerCompactTool(tools);
+  const compactor = new ContextCompactor({
+    provider,
+    transcriptDir: path.join(config.workdir, ".transcripts"),
+    toolResultsDir: path.join(config.workdir, ".task_outputs", "tool-results"),
+    notify: (message) => console.log(message),
+  });
+  return new Harness(config, provider, tools, hooks, compactor);
 }
 
 async function main(): Promise<void> {
