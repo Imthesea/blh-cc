@@ -30,6 +30,9 @@ export class ContextCompactor {
   readonly toolResultsDir: string;
   readonly notify: (message: string) => void;
 
+  /** 实例级上下文阈值，默认取静态常量；测试可覆写（TS 实例无法遮蔽 static） */
+  contextCharLimit: number = ContextCompactor.CONTEXT_CHAR_LIMIT;
+
   constructor(options: CompactorOptions) {
     this.provider = options.provider;
     this.transcriptDir = options.transcriptDir;
@@ -344,5 +347,23 @@ export class ContextCompactor {
       transcript,
     );
     return tailStart ? [message, ...messages.slice(tailStart)] : [message];
+  }
+
+  /** 每次模型调用前执行：低成本可恢复操作优先，模型摘要最后 */
+  async prepare(messages: ChatMessage[], activeRequest: string): Promise<ChatMessage[]> {
+    let prepared = this.toolResultBudget(messages);
+    prepared = this.snipCompact(prepared);
+    if (ContextCompactor.estimateChars(prepared) > this.contextCharLimit) {
+      const target = Math.floor(this.contextCharLimit * 0.8);
+      prepared = this.microCompact(prepared, target);
+      if (ContextCompactor.estimateChars(prepared) > this.contextCharLimit) {
+        prepared = this.fitToolResults(prepared, target);
+      }
+      if (ContextCompactor.estimateChars(prepared) > this.contextCharLimit) {
+        this.notify("[auto compact]");
+        prepared = await this.compactHistory(prepared, activeRequest);
+      }
+    }
+    return prepared;
   }
 }

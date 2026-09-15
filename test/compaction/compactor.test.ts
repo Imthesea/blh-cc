@@ -503,3 +503,93 @@ describe("summarizeHistory / compactHistory / reactiveCompact", () => {
     assertNoOrphanToolResults(compacted);
   });
 });
+
+describe("prepare 管线", () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), "compactor-test-"));
+  });
+
+  afterEach(() => {
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("未超限时保留全部结果", async () => {
+    const compactor = makeCompactor(tmpDir);
+    const messages: ChatMessage[] = [];
+    const expected: string[] = [];
+    for (let index = 0; index < 5; index++) {
+      const result = `result-${index}:` + "x".repeat(200);
+      expected.push(result);
+      messages.push(
+        assistantToolCalls(`tool-${index}`),
+        toolResult(`tool-${index}`, result),
+      );
+    }
+    messages.push(textMsg("continue"));
+    const prepared = await compactor.prepare(messages, "inspect the repository");
+    const actual = prepared.filter((m) => m.role === "tool").map((m) => m.content);
+    expect(actual).toEqual(expected);
+  });
+
+  it("超限后 microCompact 替换最旧结果", async () => {
+    const compactor = makeCompactor(tmpDir);
+    const messages: ChatMessage[] = [];
+    for (let index = 0; index < 5; index++) {
+      messages.push(
+        assistantToolCalls(`tool-${index}`),
+        toolResult(`tool-${index}`, `result-${index}:` + "x".repeat(1000)),
+      );
+    }
+    messages.push(textMsg("continue"));
+    // 动态阈值：恰好在 micro 替换最旧 2 条后降到阈值内，不触发 fit/compactHistory；
+    // 避免硬编码阈值受 OpenAI 包装开销与临时路径长度影响
+    compactor.contextCharLimit = ContextCompactor.estimateChars(messages) - 1200;
+    const prepared = await compactor.prepare(messages, "inspect the repository");
+    const actual = prepared.filter((m) => m.role === "tool").map((m) => m.content ?? "");
+    for (const content of actual.slice(0, 2)) {
+      expect(content.startsWith("[Earlier tool result saved at ")).toBe(true);
+    }
+    actual.slice(0, 2).forEach((content, index) => {
+      const saved = content
+        .replace("[Earlier tool result saved at ", "")
+        .replace(/\]$/, "");
+      expect(readFileSync(saved, "utf8")).toBe(`result-${index}:` + "x".repeat(1000));
+    });
+    actual.slice(2).forEach((content, offset) => {
+      expect(content.startsWith(`result-${offset + 2}:`)).toBe(true);
+    });
+  });
+
+  it("全量压缩前先持久化超大 unseen 结果", async () => {
+    const compactor = makeCompactor(tmpDir);
+    compactor.summarizeHistory = async () => {
+      throw new Error("full compaction should not run");
+    };
+    const output = "latest-result:" + "x".repeat(60000);
+    const messages = [assistantToolCalls("latest"), toolResult("latest", output)];
+    const prepared = await compactor.prepare(messages, "inspect the result");
+    expect(prepared).toHaveLength(2);
+    const content = prepared[1]?.content ?? "";
+    expect(content.startsWith("<persisted-output>")).toBe(true);
+    const savedLine =
+      content.split("\n").find((line) => line.startsWith("Full output: ")) ?? "";
+    expect(readFileSync(savedLine.replace("Full output: ", ""), "utf8")).toBe(output);
+  });
+
+  it("仍超限时自动 compactHistory", async () => {
+    const provider = new FakeProvider([{ role: "assistant", content: "summary" }]);
+    const compactor = makeCompactor(tmpDir, provider);
+    compactor.contextCharLimit = 2000;
+    const messages: ChatMessage[] = [
+      { role: "system", content: "sys" },
+      userMsg("u" + "x".repeat(5000)),
+      textMsg("a" + "y".repeat(5000)),
+    ];
+    const prepared = await compactor.prepare(messages, "big task");
+    expect(prepared).toHaveLength(1);
+    expect(prepared[0]?.content?.startsWith("[Compacted]")).toBe(true);
+    expect(prepared[0]?.content).toContain("Current user request:\nbig task");
+  });
+});
