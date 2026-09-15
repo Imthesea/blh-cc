@@ -61,6 +61,7 @@ export async function agentLoop(
     if (toolCalls.length === 0) return;
 
     let compactRequested = false;
+    let usedTodo = false;
     for (const call of toolCalls) {
       const name = call.function.name;
       const input = parseToolArguments(call.function.arguments);
@@ -77,8 +78,18 @@ export async function agentLoop(
           result = await harness.tools.dispatch(name, input);
           await harness.hooks.trigger(POST_TOOL_USE, { name, input, output: result });
         }
+        if (name === "todo_write") usedTodo = true;
       }
       messages.push({ role: "tool", tool_call_id: call.id, content: result });
+    }
+
+    const todoManager = harness.todoManager;
+    if (todoManager) {
+      const reminder = todoManager.noteRound(usedTodo);
+      const last = messages[messages.length - 1];
+      if (reminder && last?.role === "tool") {
+        last.content = (last.content ?? "") + reminder;
+      }
     }
 
     if (compactRequested && compactor) {

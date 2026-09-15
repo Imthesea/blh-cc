@@ -9,6 +9,7 @@ import { HookBus, PRE_TOOL_USE } from "../../src/core/hooks.js";
 import { ContextCompactor } from "../../src/compaction/compactor.js";
 import { MockProvider, makeToolCallMessage, makeTextMessage } from "../integration/helpers.js";
 import type { ChatMessage, ChatProvider, Config, ToolDefinition } from "../../src/core/types.js";
+import { TodoManager } from "../../src/planning/todo.js";
 
 const config: Config = {
   apiKey: "k",
@@ -25,6 +26,7 @@ function makeHarness(
     tools?: ToolDefinition[];
     compactor?: ContextCompactor;
     provider?: ChatProvider;
+    todoManager?: TodoManager;
   } = {},
 ) {
   const tools = new ToolRegistry();
@@ -41,6 +43,7 @@ function makeHarness(
     tools,
     options.hooks ?? new HookBus(),
     options.compactor,
+    options.todoManager,
   );
 }
 
@@ -270,5 +273,53 @@ describe("agentLoop 压缩集成", () => {
   it("systemPrompt 包含压缩消息防护指引", () => {
     const harness = makeHarness([]);
     expect(harness.systemPrompt).toContain("Conversation summary");
+  });
+});
+
+describe("agentLoop planning 集成", () => {
+  it("连续三轮未更新 todo 后注入 reminder", async () => {
+    const todoManager = new TodoManager();
+    const script: ChatMessage[] = [];
+    for (let i = 0; i < 3; i++) {
+      script.push(makeToolCallMessage("echo", { text: "x" }, `call_${i + 1}`));
+      script.push(makeTextMessage("done"));
+    }
+    const harness = makeHarness(script, { todoManager });
+    const messages = harness.newSession();
+    for (let i = 0; i < 3; i++) {
+      await harness.runTurn(messages, "go");
+    }
+    const toolResults = messages.filter((m) => m.role === "tool");
+    expect(
+      toolResults.some((m) => (m.content ?? "").includes("<reminder>Update your todos.</reminder>")),
+    ).toBe(true);
+  });
+
+  it("使用 todo_write 时重置计数不提醒", async () => {
+    const todoManager = new TodoManager();
+    const todoWriteTool: ToolDefinition = {
+      name: "todo_write",
+      description: "",
+      parameters: {
+        type: "object",
+        properties: { todos: { type: "array", items: { type: "object" } } },
+        required: ["todos"],
+      },
+      handler: async (args) => todoManager.update(args["todos"]),
+    };
+    const script: ChatMessage[] = [];
+    for (let i = 0; i < 2; i++) {
+      script.push(
+        makeToolCallMessage("todo_write", { todos: [{ content: "x", status: "pending" }] }, `call_${i + 1}`),
+      );
+      script.push(makeTextMessage("done"));
+    }
+    const harness = makeHarness(script, { tools: [todoWriteTool], todoManager });
+    const messages = harness.newSession();
+    for (let i = 0; i < 2; i++) {
+      await harness.runTurn(messages, "go");
+    }
+    const toolResults = messages.filter((m) => m.role === "tool");
+    expect(toolResults.some((m) => (m.content ?? "").includes("<reminder>"))).toBe(false);
   });
 });
