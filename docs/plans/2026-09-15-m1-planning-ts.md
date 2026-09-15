@@ -566,6 +566,8 @@ describe("TaskStore dependencies and state machine", () => {
 运行：`pnpm vitest run test/planning/tasks.test.ts`
 预期：PASS（16 个测试）
 
+> 质量审查后追加：`dependsOn` 增加 `visited` 集合防环（持久化数据中若存在预存环不再无限递归），并补 1 个回归测试 `dependsOn terminates on a pre-existing cycle`；最终 17 个测试全绿。
+
 - [ ] **步骤 5：Commit**
 
 ```bash
