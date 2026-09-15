@@ -57,9 +57,9 @@
 | `src/core/loop.ts` | 工具循环后注入 reminder（修改） |
 | `src/cli/main.ts` | `buildHarness` 装配 planning（修改） |
 | `.gitignore` | 追加 `.tasks/`（修改） |
-| `test/planning/test_todo.ts` | TodoManager 测试 |
-| `test/planning/test_tasks.ts` | TaskStore 测试 |
-| `test/planning/test_tools.ts` | 工具注册/handler 测试 |
+| `test/planning/todo.test.ts` | TodoManager 测试 |
+| `test/planning/tasks.test.ts` | TaskStore 测试 |
+| `test/planning/tools.test.ts` | 工具注册/handler 测试 |
 | `test/core/loop.test.ts` | 追加 reminder 集成测试（修改） |
 | `test/core/harness.test.ts` | 同步 systemPrompt 精确串（修改） |
 | `test/cli/main.test.ts` | 追加装配断言（修改） |
@@ -70,7 +70,7 @@
 
 **文件：**
 - 创建：`src/planning/todo.ts`
-- 创建：`test/planning/test_todo.ts`
+- 创建：`test/planning/todo.test.ts`
 
 - [ ] **步骤 1：编写失败的测试**
 
@@ -137,7 +137,7 @@ describe("TodoManager", () => {
 
 - [ ] **步骤 2：运行测试验证失败**
 
-运行：`pnpm vitest run test/planning/test_todo.ts`
+运行：`pnpm vitest run test/planning/todo.test.ts`
 预期：FAIL，报错 `Cannot find module '../../src/planning/todo.js'`
 
 - [ ] **步骤 3：编写最少实现代码**
@@ -204,13 +204,13 @@ export class TodoManager {
 
 - [ ] **步骤 4：运行测试验证通过**
 
-运行：`pnpm vitest run test/planning/test_todo.ts`
+运行：`pnpm vitest run test/planning/todo.test.ts`
 预期：PASS（9 个测试）
 
 - [ ] **步骤 5：Commit**
 
 ```bash
-git add src/planning/todo.ts test/planning/test_todo.ts
+git add src/planning/todo.ts test/planning/todo.test.ts
 git commit -m "feat(planning): add TodoManager with validation and reminder counter"
 ```
 
@@ -220,7 +220,7 @@ git commit -m "feat(planning): add TodoManager with validation and reminder coun
 
 **文件：**
 - 创建：`src/planning/tasks.ts`
-- 创建：`test/planning/test_tasks.ts`
+- 创建：`test/planning/tasks.test.ts`
 
 - [ ] **步骤 1：编写失败的测试**
 
@@ -290,7 +290,7 @@ describe("TaskStore", () => {
 
 - [ ] **步骤 2：运行测试验证失败**
 
-运行：`pnpm vitest run test/planning/test_tasks.ts`
+运行：`pnpm vitest run test/planning/tasks.test.ts`
 预期：FAIL，报错 `Cannot find module '../../src/planning/tasks.js'`
 
 - [ ] **步骤 3：编写最少实现代码**
@@ -381,13 +381,13 @@ export class TaskStore {
 
 - [ ] **步骤 4：运行测试验证通过**
 
-运行：`pnpm vitest run test/planning/test_tasks.ts`
+运行：`pnpm vitest run test/planning/tasks.test.ts`
 预期：PASS（6 个测试）
 
 - [ ] **步骤 5：Commit**
 
 ```bash
-git add src/planning/tasks.ts test/planning/test_tasks.ts
+git add src/planning/tasks.ts test/planning/tasks.test.ts
 git commit -m "feat(planning): add Task and TaskStore persistence"
 ```
 
@@ -397,7 +397,7 @@ git commit -m "feat(planning): add Task and TaskStore persistence"
 
 **文件：**
 - 修改：`src/planning/tasks.ts`（追加依赖 + 状态机方法）
-- 修改：`test/planning/test_tasks.ts`（追加测试）
+- 修改：`test/planning/tasks.test.ts`（追加测试）
 
 - [ ] **步骤 1：编写失败的测试**（追加到 `test_tasks.ts` 末尾，同一文件内新 `describe`）
 
@@ -491,7 +491,7 @@ describe("TaskStore dependencies and state machine", () => {
 
 - [ ] **步骤 2：运行测试验证失败**
 
-运行：`pnpm vitest run test/planning/test_tasks.ts`
+运行：`pnpm vitest run test/planning/tasks.test.ts`
 预期：FAIL，报错 `TypeError: store.updateDependencies is not a function`
 
 - [ ] **步骤 3：编写最少实现代码**（追加到 `TaskStore` 类内，`list` 方法之后）
@@ -559,13 +559,13 @@ describe("TaskStore dependencies and state machine", () => {
 
 - [ ] **步骤 4：运行测试验证通过**
 
-运行：`pnpm vitest run test/planning/test_tasks.ts`
+运行：`pnpm vitest run test/planning/tasks.test.ts`
 预期：PASS（16 个测试）
 
 - [ ] **步骤 5：Commit**
 
 ```bash
-git add src/planning/tasks.ts test/planning/test_tasks.ts
+git add src/planning/tasks.ts test/planning/tasks.test.ts
 git commit -m "feat(planning): add task dependencies and claim/complete state machine"
 ```
 
@@ -576,7 +576,7 @@ git commit -m "feat(planning): add task dependencies and claim/complete state ma
 **文件：**
 - 修改：`src/core/types.ts`（扩展 `ToolParameters` 支持 `enum`/`items`/嵌套）
 - 创建：`src/planning/tools.ts`
-- 创建：`test/planning/test_tools.ts`
+- 创建：`test/planning/tools.test.ts`
 
 - [ ] **步骤 1：编写失败的测试**
 
@@ -661,7 +661,7 @@ describe("registerPlanningTools", () => {
 
 - [ ] **步骤 2：运行测试验证失败**
 
-运行：`pnpm vitest run test/planning/test_tools.ts`
+运行：`pnpm vitest run test/planning/tools.test.ts`
 预期：FAIL，报错 `Cannot find module '../../src/planning/tools.js'`
 
 - [ ] **步骤 3：编写最少实现代码**
@@ -824,13 +824,13 @@ export function registerPlanningTools(
 
 - [ ] **步骤 4：运行测试验证通过**
 
-运行：`pnpm vitest run test/planning/test_tools.ts && pnpm typecheck`
+运行：`pnpm vitest run test/planning/tools.test.ts && pnpm typecheck`
 预期：PASS（6 个测试）+ typecheck 通过
 
 - [ ] **步骤 5：Commit**
 
 ```bash
-git add src/core/types.ts src/planning/tools.ts test/planning/test_tools.ts
+git add src/core/types.ts src/planning/tools.ts test/planning/tools.test.ts
 git commit -m "feat(planning): register planning tools"
 ```
 
