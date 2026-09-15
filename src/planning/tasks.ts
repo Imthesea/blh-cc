@@ -79,11 +79,17 @@ export class TaskStore {
       .sort((a, b) => a.id.localeCompare(b.id));
   }
 
-  /** 暴露给测试以直调（对齐蓝本 `_depends_on`） */
+  /** 判断 taskId 是否直接或传递依赖 targetId（内部用于环检测，同时对外暴露）。 */
   dependsOn(taskId: string, targetId: string): boolean {
+    return this.dependsOnVisited(taskId, targetId, new Set());
+  }
+
+  private dependsOnVisited(taskId: string, targetId: string, visited: Set<string>): boolean {
+    if (visited.has(taskId)) return false;
+    visited.add(taskId);
     const current = this.load(taskId);
     if (current.blocked_by.includes(targetId)) return true;
-    return current.blocked_by.some((dep) => this.dependsOn(dep, targetId));
+    return current.blocked_by.some((dep) => this.dependsOnVisited(dep, targetId, visited));
   }
 
   updateDependencies(taskId: string, addBlockedBy: string[]): Task {

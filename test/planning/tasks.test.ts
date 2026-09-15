@@ -99,6 +99,18 @@ describe("TaskStore dependencies and state machine", () => {
     expect(store.dependsOn(a.id, c.id)).toBe(false);
   });
 
+  it("dependsOn terminates on a pre-existing cycle", () => {
+    const store = makeStore();
+    const a = store.create("a");
+    const b = store.create("b");
+    const c = store.create("c");
+    a.blocked_by = [b.id];
+    b.blocked_by = [a.id];
+    store.save(a);
+    store.save(b);
+    expect(store.dependsOn(a.id, c.id)).toBe(false);
+  });
+
   it("incompleteDependencies and canStart", () => {
     const store = makeStore();
     const a = store.create("a");
