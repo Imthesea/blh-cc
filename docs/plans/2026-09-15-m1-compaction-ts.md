@@ -914,7 +914,7 @@ pnpm typecheck
 pnpm lint
 ```
 
-预期：20 个测试全部 PASS。
+预期：23 个测试全部 PASS。
 
 - [ ] **步骤 5：Commit**
 
@@ -1159,7 +1159,7 @@ pnpm typecheck
 pnpm lint
 ```
 
-预期：26 个测试全部 PASS。
+预期：29 个测试全部 PASS。
 
 - [ ] **步骤 5：Commit**
 
@@ -1322,7 +1322,7 @@ pnpm typecheck
 pnpm lint
 ```
 
-预期：30 个 compaction 测试全部 PASS，M0 既有测试不受影响。
+预期：33 个 compaction 测试全部 PASS，M0 既有测试不受影响。
 
 - [ ] **步骤 5：Commit**
 
@@ -1505,6 +1505,20 @@ describe("agentLoop 压缩集成", () => {
     const harness = makeHarness([], { compactor, provider });
     await expect(harness.runTurn(harness.newSession(), "hi")).rejects.toThrow("boom");
     expect(provider.calls).toBe(1);
+  });
+
+  it("prepare 自动压缩后仍保留 system 消息", async () => {
+    const provider = new FlakyProvider([
+      { role: "assistant", content: "auto summary" }, // summarizeHistory 消耗
+      makeTextMessage("done"),
+    ]);
+    const compactor = makeCompactor(tmpDir, provider);
+    compactor.contextCharLimit = 10; // 极小阈值，纯文本经 micro/fit 无法削减，必然走 compactHistory
+    const harness = makeHarness([], { compactor, provider });
+    const messages = harness.newSession();
+    await harness.runTurn(messages, "a".repeat(1000));
+    expect(messages[0]?.role).toBe("system");
+    expect(messages[1]?.content?.startsWith("[Compacted]")).toBe(true);
   });
 
   it("compact 工具在批次闭合后压缩", async () => {
@@ -1723,12 +1737,15 @@ export async function agentLoop(
   messages: ChatMessage[],
   activeRequest = "",
 ): Promise<void> {
+  const systemMessage: ChatMessage =
+    messages[0] ?? { role: "system", content: harness.systemPrompt };
   let reactiveRetries = 0;
   for (;;) {
     const compactor = harness.compactor;
     if (compactor) {
       const prepared = await compactor.prepare(messages, activeRequest);
       messages.splice(0, messages.length, ...prepared);
+      restoreSystem(messages, systemMessage);
     }
     let message: ChatMessage;
     try {
@@ -1737,12 +1754,8 @@ export async function agentLoop(
     } catch (error) {
       if (compactor && isPromptTooLong(error) && reactiveRetries < MAX_REACTIVE_RETRIES) {
         const compacted = await compactor.reactiveCompact(messages, activeRequest);
-        messages.splice(
-          0,
-          messages.length,
-          { role: "system", content: harness.systemPrompt },
-          ...compacted,
-        );
+        messages.splice(0, messages.length, ...compacted);
+        restoreSystem(messages, systemMessage);
         reactiveRetries += 1;
         continue;
       }
@@ -1775,14 +1788,15 @@ export async function agentLoop(
 
     if (compactRequested && compactor) {
       const compacted = await compactor.compactHistory(messages, activeRequest);
-      messages.splice(
-        0,
-        messages.length,
-        { role: "system", content: harness.systemPrompt },
-        ...compacted,
-      );
+      messages.splice(0, messages.length, ...compacted);
+      restoreSystem(messages, systemMessage);
     }
   }
+}
+
+/** 压缩/摘要会把 messages 换成不含 system 的新数组，此处按需把初始 system 挂回队首 */
+function restoreSystem(messages: ChatMessage[], systemMessage: ChatMessage): void {
+  if (messages[0]?.role !== "system") messages.unshift(systemMessage);
 }
 ```
 
@@ -1790,7 +1804,7 @@ export async function agentLoop(
 - 蓝本 `messages[:] = new_list` 原地替换 → `messages.splice(0, messages.length, ...newList)`（调用方持有同一数组引用，压缩结果跨轮可见）。
 - `compact` 拦截条件带 `compactor &&`：无 compactor 时 compact 走普通 dispatch（注册的工具 handler 返回同一提示文案，行为不退化）。
 - 反应式重试只针对 `isPromptTooLong` 且最多 1 次；其他错误原样抛出。
-- 压缩后 splice 前置 system 消息：`compactHistory`/`reactiveCompact` 只返回 user 摘要，若不重挂 system，身份/工具指令/防护指引会丢失。
+- 三处替换（`prepare`/`reactiveCompact`/`compactHistory`）后统一 `restoreSystem` 兜底：这些方法可能返回不含 system 的新数组（`prepare` 的 auto-compact 分支、`compactHistory`、`reactiveCompact` 都只产 user 摘要），若不重挂 system，身份/工具指令/防护指引会丢失。
 - 无循环引用风险：loop → providers/openai（openai 只依赖 types/retry）；harness → compaction 仅 type-only import。
 
 **`src/cli/repl.ts` 修改：**

@@ -204,6 +204,20 @@ describe("agentLoop 压缩集成", () => {
     expect(provider.calls).toBe(1);
   });
 
+  it("prepare 自动压缩后仍保留 system 消息", async () => {
+    const provider = new FlakyProvider([
+      { role: "assistant", content: "auto summary" }, // summarizeHistory 消耗
+      makeTextMessage("done"),
+    ]);
+    const compactor = makeCompactor(tmpDir, provider);
+    compactor.contextCharLimit = 10; // 极小阈值，纯文本经 micro/fit 无法削减，必然走 compactHistory
+    const harness = makeHarness([], { compactor, provider });
+    const messages = harness.newSession();
+    await harness.runTurn(messages, "a".repeat(1000));
+    expect(messages[0]?.role).toBe("system");
+    expect(messages[1]?.content?.startsWith("[Compacted]")).toBe(true);
+  });
+
   it("compact 工具在批次闭合后压缩", async () => {
     const sideEffects: string[] = [];
     const tools: ToolDefinition[] = [

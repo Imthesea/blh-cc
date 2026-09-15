@@ -32,12 +32,15 @@ export async function agentLoop(
   messages: ChatMessage[],
   activeRequest = "",
 ): Promise<void> {
+  const systemMessage: ChatMessage =
+    messages[0] ?? { role: "system", content: harness.systemPrompt };
   let reactiveRetries = 0;
   for (;;) {
     const compactor = harness.compactor;
     if (compactor) {
       const prepared = await compactor.prepare(messages, activeRequest);
       messages.splice(0, messages.length, ...prepared);
+      restoreSystem(messages, systemMessage);
     }
     let message: ChatMessage;
     try {
@@ -46,12 +49,8 @@ export async function agentLoop(
     } catch (error) {
       if (compactor && isPromptTooLong(error) && reactiveRetries < MAX_REACTIVE_RETRIES) {
         const compacted = await compactor.reactiveCompact(messages, activeRequest);
-        messages.splice(
-          0,
-          messages.length,
-          { role: "system", content: harness.systemPrompt },
-          ...compacted,
-        );
+        messages.splice(0, messages.length, ...compacted);
+        restoreSystem(messages, systemMessage);
         reactiveRetries += 1;
         continue;
       }
@@ -84,12 +83,13 @@ export async function agentLoop(
 
     if (compactRequested && compactor) {
       const compacted = await compactor.compactHistory(messages, activeRequest);
-      messages.splice(
-        0,
-        messages.length,
-        { role: "system", content: harness.systemPrompt },
-        ...compacted,
-      );
+      messages.splice(0, messages.length, ...compacted);
+      restoreSystem(messages, systemMessage);
     }
   }
+}
+
+/** 压缩/摘要会把 messages 换成不含 system 的新数组，此处按需把初始 system 挂回队首 */
+function restoreSystem(messages: ChatMessage[], systemMessage: ChatMessage): void {
+  if (messages[0]?.role !== "system") messages.unshift(systemMessage);
 }
