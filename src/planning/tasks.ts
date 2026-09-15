@@ -78,4 +78,63 @@ export class TaskStore {
       .map((name) => this.load(name.slice(0, -".json".length)))
       .sort((a, b) => a.id.localeCompare(b.id));
   }
+
+  /** 暴露给测试以直调（对齐蓝本 `_depends_on`） */
+  dependsOn(taskId: string, targetId: string): boolean {
+    const current = this.load(taskId);
+    if (current.blocked_by.includes(targetId)) return true;
+    return current.blocked_by.some((dep) => this.dependsOn(dep, targetId));
+  }
+
+  updateDependencies(taskId: string, addBlockedBy: string[]): Task {
+    if (!Array.isArray(addBlockedBy)) throw new Error("add_blocked_by must be a list of task IDs");
+    const task = this.load(taskId);
+    for (const dep of addBlockedBy) {
+      if (!this.exists(dep)) throw new Error(`dependency does not exist: ${dep}`);
+      if (dep === taskId) throw new Error("task cannot depend on itself");
+      if (this.dependsOn(dep, taskId)) throw new Error(`circular dependency: ${taskId} <-> ${dep}`);
+      if (!task.blocked_by.includes(dep)) task.blocked_by.push(dep);
+    }
+    this.save(task);
+    return task;
+  }
+
+  incompleteDependencies(task: Task): string[] {
+    return task.blocked_by.filter((dep) => this.load(dep).status !== "completed");
+  }
+
+  canStart(taskId: string): boolean {
+    const task = this.load(taskId);
+    return task.status === "pending" && this.incompleteDependencies(task).length === 0;
+  }
+
+  claim(taskId: string, owner = "agent"): string {
+    const task = this.load(taskId);
+    if (task.status === "completed") return `Task ${task.id} is already completed.`;
+    if (task.status === "in_progress") {
+      return `Task ${task.id} is already in progress${task.owner ? ` by ${task.owner}.` : "."}`;
+    }
+    const blocked = this.incompleteDependencies(task);
+    if (blocked.length > 0) {
+      return `Task ${task.id} is blocked by: ${blocked.join(", ")}`;
+    }
+    task.status = "in_progress";
+    task.owner = owner;
+    this.save(task);
+    return `Claimed ${task.id}.`;
+  }
+
+  complete(taskId: string, owner = "agent"): string {
+    const task = this.load(taskId);
+    if (task.status === "completed") return `Task ${task.id} is already completed.`;
+    if (task.status !== "in_progress") {
+      return `Cannot complete pending task ${task.id}; claim it first.`;
+    }
+    if (task.owner && task.owner !== owner) {
+      return `Task ${task.id} is owned by ${task.owner}, not ${owner}.`;
+    }
+    task.status = "completed";
+    this.save(task);
+    return `Completed ${task.id}.`;
+  }
 }

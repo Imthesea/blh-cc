@@ -59,3 +59,89 @@ describe("TaskStore", () => {
     expect(ids).toEqual([...ids].sort());
   });
 });
+
+describe("TaskStore dependencies and state machine", () => {
+  it("updateDependencies adds edge", () => {
+    const store = makeStore();
+    const a = store.create("a");
+    const b = store.create("b");
+    expect(store.updateDependencies(b.id, [a.id]).blocked_by).toEqual([a.id]);
+  });
+
+  it("updateDependencies rejects missing dep", () => {
+    const store = makeStore();
+    const b = store.create("b");
+    expect(() => store.updateDependencies(b.id, ["task_deadbeef"])).toThrow("dependency does not exist");
+  });
+
+  it("updateDependencies rejects self", () => {
+    const store = makeStore();
+    const a = store.create("a");
+    expect(() => store.updateDependencies(a.id, [a.id])).toThrow("task cannot depend on itself");
+  });
+
+  it("updateDependencies rejects cycle", () => {
+    const store = makeStore();
+    const a = store.create("a");
+    const b = store.create("b");
+    store.updateDependencies(a.id, [b.id]);
+    expect(() => store.updateDependencies(b.id, [a.id])).toThrow("circular dependency");
+  });
+
+  it("dependsOn transitive", () => {
+    const store = makeStore();
+    const a = store.create("a");
+    const b = store.create("b");
+    const c = store.create("c");
+    store.updateDependencies(b.id, [a.id]);
+    store.updateDependencies(c.id, [b.id]);
+    expect(store.dependsOn(c.id, a.id)).toBe(true);
+    expect(store.dependsOn(a.id, c.id)).toBe(false);
+  });
+
+  it("incompleteDependencies and canStart", () => {
+    const store = makeStore();
+    const a = store.create("a");
+    const b = store.create("b");
+    store.updateDependencies(b.id, [a.id]);
+    expect(store.incompleteDependencies(store.load(b.id))).toEqual([a.id]);
+    expect(store.canStart(b.id)).toBe(false);
+    expect(store.canStart(a.id)).toBe(true);
+    store.claim(a.id);
+    store.complete(a.id);
+    expect(store.canStart(b.id)).toBe(true);
+    expect(store.incompleteDependencies(store.load(b.id))).toEqual([]);
+  });
+
+  it("claim blocked and unblocked", () => {
+    const store = makeStore();
+    const a = store.create("a");
+    const b = store.create("b");
+    store.updateDependencies(b.id, [a.id]);
+    expect(store.claim(b.id)).toContain("blocked by");
+    expect(store.claim(a.id)).toBe(`Claimed ${a.id}.`);
+  });
+
+  it("claim idempotent and completed", () => {
+    const store = makeStore();
+    const a = store.create("a");
+    store.claim(a.id);
+    expect(store.claim(a.id)).toContain("already in progress");
+    store.complete(a.id);
+    expect(store.claim(a.id)).toContain("already completed");
+  });
+
+  it("complete requires claim", () => {
+    const store = makeStore();
+    const a = store.create("a");
+    expect(store.complete(a.id)).toContain("claim it first");
+  });
+
+  it("complete owner mismatch", () => {
+    const store = makeStore();
+    const a = store.create("a");
+    store.claim(a.id, "alice");
+    expect(store.complete(a.id, "bob")).toContain("owned by alice");
+    expect(store.complete(a.id, "alice")).toBe(`Completed ${a.id}.`);
+  });
+});
