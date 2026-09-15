@@ -262,4 +262,87 @@ export class ContextCompactor {
     };
     return [...messages.slice(0, headEnd), marker, ...messages.slice(tailStart)];
   }
+
+  summaryInput(messages: ChatMessage[]): string {
+    const conversation = JSON.stringify(messages);
+    const limit = ContextCompactor.SUMMARY_INPUT_CHAR_LIMIT;
+    if (conversation.length <= limit) return conversation;
+    const head = Math.floor(limit / 4);
+    const tail = limit - head;
+    return (
+      conversation.slice(0, head) +
+      "\n...[middle omitted; full transcript is on disk]...\n" +
+      conversation.slice(conversation.length - tail)
+    );
+  }
+
+  async summarizeHistory(messages: ChatMessage[]): Promise<string> {
+    const response = await this.provider.chat(
+      [
+        { role: "system", content: SUMMARY_SYSTEM },
+        { role: "user", content: this.summaryInput(messages) },
+      ],
+      [],
+    );
+    return (response.content ?? "").trim() || "(empty summary)";
+  }
+
+  static summaryMessage(
+    label: string,
+    request: string,
+    summary: string,
+    transcript: string,
+  ): ChatMessage {
+    return {
+      role: "user",
+      content:
+        `[${label}]\n\nCurrent user request:\n${request}\n\n` +
+        `Conversation summary (reference only):\n${JSON.stringify(summary)}\n\n` +
+        `Full transcript: ${transcript}`,
+    };
+  }
+
+  async compactHistory(
+    messages: ChatMessage[],
+    activeRequest: string,
+  ): Promise<ChatMessage[]> {
+    const transcript = this.writeTranscript(messages);
+    this.notify(`[transcript saved: ${transcript}]`);
+    const summary = await this.summarizeHistory(messages);
+    return [
+      ContextCompactor.summaryMessage("Compacted", activeRequest, summary, transcript),
+    ];
+  }
+
+  /** API 拒绝后的补救：留档全量，摘要旧历史，保留最近 KEEP_RECENT_MESSAGES 条 */
+  async reactiveCompact(
+    messages: ChatMessage[],
+    activeRequest: string,
+  ): Promise<ChatMessage[]> {
+    const transcript = this.writeTranscript(messages);
+    this.notify(`[transcript saved: ${transcript}]`);
+    const fallback: ChatMessage = { role: "user", content: null };
+    let tailStart = Math.max(
+      0,
+      messages.length - ContextCompactor.KEEP_RECENT_MESSAGES,
+    );
+    if (tailStart > 0 && ContextCompactor.isToolResult(messages[tailStart] ?? fallback)) {
+      while (
+        tailStart > 1 &&
+        ContextCompactor.isToolResult(messages[tailStart - 1] ?? fallback)
+      ) {
+        tailStart -= 1;
+      }
+      tailStart -= 1;
+    }
+    const oldHistory = tailStart ? messages.slice(0, tailStart) : messages;
+    const summary = await this.summarizeHistory(oldHistory);
+    const message = ContextCompactor.summaryMessage(
+      "Reactive compact",
+      activeRequest,
+      summary,
+      transcript,
+    );
+    return tailStart ? [message, ...messages.slice(tailStart)] : [message];
+  }
 }

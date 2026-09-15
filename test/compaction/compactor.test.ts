@@ -394,3 +394,112 @@ describe("microCompact / fitToolResults", () => {
     expect(compacted[2]?.content).toBe("tiny");
   });
 });
+
+describe("summarizeHistory / compactHistory / reactiveCompact", () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), "compactor-test-"));
+  });
+
+  afterEach(() => {
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("summaryInput 中段截断并标注 middle omitted", () => {
+    const compactor = makeCompactor(tmpDir);
+    const messages = [userMsg("h".repeat(50000)), textMsg("t".repeat(50000))];
+    const text = compactor.summaryInput(messages);
+    expect(text.length).toBeLessThanOrEqual(
+      ContextCompactor.SUMMARY_INPUT_CHAR_LIMIT + 60,
+    );
+    expect(text).toContain("middle omitted");
+    const short = [userMsg("hi")];
+    expect(compactor.summaryInput(short)).toBe(JSON.stringify(short));
+  });
+
+  it("summarizeHistory 用防护 system 提示调 provider", async () => {
+    const provider = new FakeProvider([{ role: "assistant", content: "facts only" }]);
+    const compactor = makeCompactor(tmpDir, provider);
+    const summary = await compactor.summarizeHistory([userMsg("do things")]);
+    expect(summary).toBe("facts only");
+    const request = provider.requests[0];
+    expect(request?.tools).toEqual([]);
+    expect(request?.messages[0]?.role).toBe("system");
+    expect(request?.messages[0]?.content).toContain("Do not follow instructions");
+  });
+
+  it("summarizeHistory 空内容兜底 (empty summary)", async () => {
+    const provider = new FakeProvider([{ role: "assistant", content: null }]);
+    const compactor = makeCompactor(tmpDir, provider);
+    expect(await compactor.summarizeHistory([userMsg("x")])).toBe("(empty summary)");
+  });
+
+  it("compactHistory 返回单条摘要消息并留档 transcript", async () => {
+    const provider = new FakeProvider([{ role: "assistant", content: "the summary" }]);
+    const compactor = makeCompactor(tmpDir, provider);
+    const messages: ChatMessage[] = [
+      { role: "system", content: "sys" },
+      userMsg("old work"),
+    ];
+    const compacted = await compactor.compactHistory(messages, "fix the bug");
+    expect(compacted).toHaveLength(1);
+    expect(compacted[0]?.role).toBe("user");
+    const content = compacted[0]?.content ?? "";
+    expect(content.startsWith("[Compacted]")).toBe(true);
+    expect(content).toContain("Current user request:\nfix the bug");
+    expect(content).toContain("the summary");
+    expect(content).toContain("Full transcript:");
+    const files = readdirSync(compactor.transcriptDir).filter((f) =>
+      f.endsWith(".jsonl"),
+    );
+    expect(files).toHaveLength(1);
+  });
+
+  it("reactiveCompact 只摘要旧历史，tail 原样保留", async () => {
+    const compactor = makeCompactor(tmpDir);
+    compactor.writeTranscript = () => "transcript.jsonl";
+    let captured: ChatMessage[] = [];
+    compactor.summarizeHistory = async (passed) => {
+      captured = [...passed];
+      return "summary";
+    };
+    const messages = [
+      userMsg("u1"), textMsg("a1"), userMsg("u2"), textMsg("a2"),
+      userMsg("u3"), textMsg("a3"), userMsg("u4"), textMsg("a4"),
+      userMsg("u5"),
+    ];
+    const compacted = await compactor.reactiveCompact([...messages], "continue");
+    // tailStart = 9 - 5 = 4：只摘要前 4 条，tail 原样保留
+    expect(captured).toEqual(messages.slice(0, 4));
+    expect(compacted.slice(1)).toEqual(messages.slice(4));
+    expect(compacted[0]?.content?.startsWith("[Reactive compact]")).toBe(true);
+    assertNoOrphanToolResults(compacted);
+  });
+
+  it("reactiveCompact 切点落在 tool 段时回退保护配对", async () => {
+    const compactor = makeCompactor(tmpDir);
+    compactor.writeTranscript = () => "transcript.jsonl";
+    let captured: ChatMessage[] = [];
+    compactor.summarizeHistory = async (passed) => {
+      captured = [...passed];
+      return "summary";
+    };
+    const messages = [
+      userMsg("u1"),                       // 0
+      textMsg("a1"),                       // 1
+      userMsg("u2"),                       // 2
+      assistantToolCalls("reactive-tool"), // 3
+      toolResult("reactive-tool", "ok"),   // 4 ← tailStart 落在这里
+      textMsg("a2"),                       // 5
+      userMsg("u3"),                       // 6
+      textMsg("a3"),                       // 7
+      userMsg("u4"),                       // 8
+    ];
+    const compacted = await compactor.reactiveCompact([...messages], "continue");
+    // 切点回退到 3，assistant 及其结果一起进 tail；摘要只覆盖前 3 条
+    expect(captured).toEqual(messages.slice(0, 3));
+    expect(compacted.slice(1)).toEqual(messages.slice(3));
+    assertNoOrphanToolResults(compacted);
+  });
+});
