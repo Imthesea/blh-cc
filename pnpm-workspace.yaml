@@ -1,0 +1,6 @@
+storeDir: .pnpm-store
+cacheDir: .pnpm-cache
+onlyBuiltDependencies:
+  - esbuild
+allowBuilds:
+  esbuild: true

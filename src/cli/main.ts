@@ -1,0 +1,56 @@
+#!/usr/bin/env node
+import readline from "node:readline";
+import { loadConfig } from "../core/config.js";
+import { Harness } from "../core/harness.js";
+import { HookBus, PRE_TOOL_USE } from "../core/hooks.js";
+import { lastAssistantText } from "../core/loop.js";
+import { OpenAIProvider } from "../providers/openai.js";
+import { ToolRegistry } from "../tools/registry.js";
+import { registerBuiltinTools } from "../tools/index.js";
+import { DEFAULT_RULES } from "../security/rules.js";
+import { makePermissionHook } from "../security/approval.js";
+import { repl, makeReadlineIO } from "./repl.js";
+
+export function buildHarness(workdir?: string): Harness {
+  const config = loadConfig(workdir);
+  const provider = new OpenAIProvider(config);
+  const tools = new ToolRegistry();
+  const hooks = new HookBus();
+  registerBuiltinTools(tools, config);
+  const permissionHook = makePermissionHook(DEFAULT_RULES, async (prompt) => {
+    const readlineInterface = readline.createInterface({
+      input: process.stdin,
+      output: process.stdout,
+    });
+    return new Promise<string>((resolve) =>
+      readlineInterface.question(prompt, (answer) => {
+        readlineInterface.close();
+        resolve(answer);
+      }),
+    );
+  });
+  hooks.register(PRE_TOOL_USE, (payload) => permissionHook(payload.name, payload.input));
+  return new Harness(config, provider, tools, hooks);
+}
+
+async function main(): Promise<void> {
+  const args = process.argv.slice(2);
+  const harness = buildHarness();
+  const printFlagIndex = args.findIndex((arg) => arg === "-p" || arg === "--print");
+  if (printFlagIndex !== -1) {
+    const text = args[printFlagIndex + 1];
+    if (!text) {
+      console.error("usage: blh -p <text>");
+      process.exit(1);
+    }
+    const messages = await harness.runTurn(text);
+    console.log(lastAssistantText(messages));
+    return;
+  }
+  await repl(harness, makeReadlineIO());
+}
+
+main().catch((error: unknown) => {
+  console.error(error instanceof Error ? error.message : String(error));
+  process.exit(1);
+});
