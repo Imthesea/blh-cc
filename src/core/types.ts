@@ -15,10 +15,19 @@ export interface ChatMessage {
 
 export type ToolHandler = (args: Record<string, unknown>) => Promise<string>;
 
-/** 工具参数的 JSON Schema（M0 仅支持 object 顶层） */
+/** 工具参数 JSON Schema 属性（递归，支持 enum / array items / 嵌套 object） */
+export type JsonSchemaProperty = {
+  type: string;
+  description?: string;
+  enum?: string[];
+  items?: JsonSchemaProperty;
+  properties?: Record<string, JsonSchemaProperty>;
+  required?: string[];
+};
+
 export type ToolParameters = {
   type: "object";
-  properties?: Record<string, { type: string; description?: string }>;
+  properties?: Record<string, JsonSchemaProperty>;
   required?: string[];
 };
 
