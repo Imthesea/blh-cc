@@ -1,4 +1,7 @@
 // src/compaction/compactor.ts
+import { randomUUID } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import * as path from "node:path";
 import type { ChatMessage, ChatProvider } from "../core/types.js";
 
 export const SUMMARY_SYSTEM =
@@ -62,5 +65,81 @@ export class ContextCompactor {
       }
     }
     return positions;
+  }
+
+  /** candidate 解析后必须严格位于 dir 内（Windows/POSIX 通用） */
+  private static isInsideDir(candidate: string, dir: string): boolean {
+    const relative = path.relative(path.resolve(dir), path.resolve(candidate));
+    return relative !== "" && !relative.startsWith("..") && !path.isAbsolute(relative);
+  }
+
+  private static isFile(candidate: string): boolean {
+    return existsSync(candidate) && statSync(candidate).isFile();
+  }
+
+  writeTranscript(messages: ChatMessage[]): string {
+    mkdirSync(this.transcriptDir, { recursive: true });
+    const filePath = path.join(
+      this.transcriptDir,
+      `transcript_${randomUUID().replaceAll("-", "")}.jsonl`,
+    );
+    const content = messages.map((m) => JSON.stringify(m)).join("\n") + "\n";
+    writeFileSync(filePath, content, { encoding: "utf8", flag: "wx" });
+    return filePath;
+  }
+
+  saveOutput(toolCallId: string, output: string): string {
+    mkdirSync(this.toolResultsDir, { recursive: true });
+    const safeId =
+      toolCallId
+        .replace(/[^A-Za-z0-9._-]/g, "_")
+        .replace(/\.{2,}/g, "_")
+        .slice(0, 120) || "unknown";
+    const filePath = path.join(this.toolResultsDir, `${safeId}.txt`);
+    writeFileSync(filePath, output, "utf8");
+    return filePath;
+  }
+
+  /** 从已压缩占位中还原落盘路径；不信任 toolResultsDir 之外的路径 */
+  persistedOutputPath(output: string): string | null {
+    let candidate: string | null = null;
+    if (output.startsWith("<persisted-output>\n")) {
+      candidate =
+        output
+          .split("\n")
+          .find((line) => line.startsWith("Full output: "))
+          ?.replace("Full output: ", "") ?? null;
+    }
+    const prefix = "[Earlier tool result saved at ";
+    if (output.startsWith(prefix) && output.endsWith("]")) {
+      candidate = output.slice(prefix.length, -1);
+    }
+    if (!candidate) return null;
+    if (!ContextCompactor.isInsideDir(candidate, this.toolResultsDir)) return null;
+    if (!ContextCompactor.isFile(candidate)) return null;
+    return candidate;
+  }
+
+  persistedPreview(toolCallId: string, output: string, previewChars = 2000): string {
+    const savedPath = this.persistedOutputPath(output);
+    let filePath: string;
+    let preview: string;
+    if (savedPath) {
+      filePath = savedPath;
+      try {
+        preview = readFileSync(savedPath, "utf8").slice(0, previewChars);
+      } catch {
+        preview = output.slice(0, previewChars);
+      }
+    } else {
+      filePath = this.saveOutput(toolCallId, output);
+      preview = output.slice(0, previewChars);
+    }
+    return `<persisted-output>\nFull output: ${filePath}\nPreview:\n${preview}\n</persisted-output>`;
+  }
+
+  persistLargeOutput(toolCallId: string, output: string): string {
+    if (output.length <= ContextCompactor.LARGE_RESULT_CHAR_LIMIT) return output;
+    return this.persistedPreview(toolCallId, output);
   }
 }
