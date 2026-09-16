@@ -10,6 +10,8 @@ import { ContextCompactor } from "../../src/compaction/compactor.js";
 import { MockProvider, makeToolCallMessage, makeTextMessage } from "../integration/helpers.js";
 import type { ChatMessage, ChatProvider, Config, ToolDefinition } from "../../src/core/types.js";
 import { TodoManager } from "../../src/planning/todo.js";
+import { MemoryStore } from "../../src/memory/store.js";
+import { Memory } from "../../src/memory/system.js";
 
 const config: Config = {
   apiKey: "k",
@@ -27,6 +29,7 @@ function makeHarness(
     compactor?: ContextCompactor;
     provider?: ChatProvider;
     todoManager?: TodoManager;
+    memory?: Memory;
   } = {},
 ) {
   const tools = new ToolRegistry();
@@ -44,6 +47,7 @@ function makeHarness(
     options.hooks ?? new HookBus(),
     options.compactor,
     options.todoManager,
+    options.memory,
   );
 }
 
@@ -321,5 +325,77 @@ describe("agentLoop planning 集成", () => {
     }
     const toolResults = messages.filter((m) => m.role === "tool");
     expect(toolResults.some((m) => (m.content ?? "").includes("<reminder>"))).toBe(false);
+  });
+});
+
+describe("runTurn memory 集成", () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), "loop-memory-"));
+  });
+
+  afterEach(() => {
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("runTurn injects memory system section", async () => {
+    const store = new MemoryStore(path.join(tmpDir, ".memory"));
+    store.writeMemoryFile("Indent", "user", "Use tabs", "Tabs not spaces.");
+    const provider = new MockProvider([
+      { role: "assistant", content: "[0]" }, // recall 选择
+      makeTextMessage("done"), // 主循环
+      { role: "assistant", content: "[]" }, // extract
+    ]);
+    const memory = new Memory(store, provider);
+    const harness = makeHarness([], { memory, provider });
+    const messages = harness.newSession();
+    await harness.runTurn(messages, "what indent style do I prefer");
+    expect(messages[0]?.content).toContain("Relevant memory records:");
+    expect(messages[0]?.content).toContain("Tabs not spaces.");
+    expect(lastAssistantText(messages)).toBe("done");
+  });
+
+  it("runTurn extracts memories", async () => {
+    const store = new MemoryStore(path.join(tmpDir, ".memory"));
+    const provider = new MockProvider([
+      makeTextMessage("done"), // 主循环(空 store 时 recall 不调用 provider)
+      {
+        role: "assistant",
+        content: JSON.stringify([
+          { name: "Pref", type: "user", scope: "persistent", description: "Likes tabs", body: "Use tabs." },
+        ]),
+      }, // extract
+    ]);
+    const memory = new Memory(store, provider);
+    const harness = makeHarness([], { memory, provider });
+    const messages = harness.newSession();
+    await harness.runTurn(messages, "I prefer tabs");
+    expect(store.readMemoryFile("pref.md")).not.toBeNull();
+  });
+
+  it("runTurn consolidates after extract", async () => {
+    class FakeMemory {
+      extracted: ChatMessage[] | null = null;
+      consolidated = false;
+      async systemSection(_messages: ChatMessage[]): Promise<string> {
+        return "";
+      }
+      async extract(messages: ChatMessage[]): Promise<number> {
+        this.extracted = messages;
+        return 1;
+      }
+      async consolidate(): Promise<number> {
+        this.consolidated = true;
+        return 1;
+      }
+    }
+    const memory = new FakeMemory();
+    const harness = makeHarness([makeTextMessage("done")], {
+      memory: memory as unknown as Memory,
+    });
+    await harness.runTurn(harness.newSession(), "hi");
+    expect(memory.extracted).not.toBeNull();
+    expect(memory.consolidated).toBe(true);
   });
 });

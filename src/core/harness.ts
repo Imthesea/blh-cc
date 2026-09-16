@@ -5,6 +5,7 @@ import { USER_PROMPT_SUBMIT, STOP } from "./hooks.js";
 import { agentLoop } from "./loop.js";
 import type { ContextCompactor } from "../compaction/compactor.js";
 import type { TodoManager } from "../planning/todo.js";
+import type { Memory } from "../memory/system.js";
 
 export class Harness {
   readonly systemPrompt: string;
@@ -16,6 +17,7 @@ export class Harness {
     readonly hooks: HookBus,
     readonly compactor?: ContextCompactor,
     readonly todoManager?: TodoManager,
+    readonly memory?: Memory,
   ) {
     this.systemPrompt =
       `You are blh, a coding agent. Workdir: ${config.workdir}. ` +
@@ -31,10 +33,22 @@ export class Harness {
     return [{ role: "system", content: this.systemPrompt }];
   }
 
+  private async fullSystemPrompt(messages: ChatMessage[]): Promise<string> {
+    const section = this.memory ? await this.memory.systemSection(messages) : "";
+    return section ? `${this.systemPrompt}\n\n${section}` : this.systemPrompt;
+  }
+
   async runTurn(messages: ChatMessage[], text: string): Promise<void> {
     await this.hooks.trigger(USER_PROMPT_SUBMIT, { text });
     messages.push({ role: "user", content: text });
+    const systemMessage = messages[0];
+    if (this.memory && systemMessage) {
+      systemMessage.content = await this.fullSystemPrompt(messages);
+    }
     await agentLoop(this, messages, text);
     await this.hooks.trigger(STOP, {});
+    if (this.memory && (await this.memory.extract(messages))) {
+      await this.memory.consolidate();
+    }
   }
 }

@@ -69,6 +69,26 @@ describe("OpenAIProvider", () => {
     expect(create).toHaveBeenCalledTimes(2);
     vi.useRealTimers();
   });
+
+  it("passes max_tokens when provided", async () => {
+    const { OpenAIProvider } = await import("../../src/providers/openai.js");
+    const create = vi.fn().mockResolvedValue({
+      choices: [{ message: { role: "assistant", content: "hi" } }],
+    });
+    const provider = new OpenAIProvider(config, makeClient(create));
+    await provider.chat([{ role: "user", content: "hi" }], [], 200);
+    expect(create.mock.calls[0]?.[0].max_tokens).toBe(200);
+  });
+
+  it("omits max_tokens when not provided", async () => {
+    const { OpenAIProvider } = await import("../../src/providers/openai.js");
+    const create = vi.fn().mockResolvedValue({
+      choices: [{ message: { role: "assistant", content: "hi" } }],
+    });
+    const provider = new OpenAIProvider(config, makeClient(create));
+    await provider.chat([{ role: "user", content: "hi" }], []);
+    expect(create.mock.calls[0]?.[0]).not.toHaveProperty("max_tokens");
+  });
 });
 
 describe("isPromptTooLong", () => {

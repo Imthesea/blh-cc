@@ -71,7 +71,7 @@ export class OpenAIProvider implements ChatProvider {
       });
   }
 
-  async chat(messages: ChatMessage[], tools: ToolDefinition[]): Promise<ChatMessage> {
+  async chat(messages: ChatMessage[], tools: ToolDefinition[], maxTokens?: number): Promise<ChatMessage> {
     const response = await withRetry(() =>
       this.client.chat.completions.create(
         {
@@ -89,6 +89,7 @@ export class OpenAIProvider implements ChatProvider {
                 })),
               }
             : {}),
+          ...(maxTokens !== undefined ? { max_tokens: maxTokens } : {}),
         },
         { timeout: 600_000 },
       ),
