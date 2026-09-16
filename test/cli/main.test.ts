@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -57,5 +57,25 @@ describe("buildHarness 装配", () => {
     for (const name of ["schedule_cron", "list_crons", "cancel_cron"]) {
       expect(names).toContain(name);
     }
+  });
+
+  it("cron 持久化任务在 buildHarness 时被加载", async () => {
+    writeFileSync(
+      path.join(tmpDir, ".scheduled_tasks.json"),
+      JSON.stringify([
+        {
+          id: "cron_test1",
+          cron: "* * * * *",
+          prompt: "hi",
+          recurring: true,
+          durable: true,
+          pending_delivery: false,
+          last_fired: null,
+        },
+      ]),
+    );
+    const { buildHarness } = await import("../../src/cli/main.js");
+    const harness = buildHarness(tmpDir);
+    expect(harness.jobs?.cron.listJobs().map((job) => job.id)).toContain("cron_test1");
   });
 });

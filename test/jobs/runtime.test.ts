@@ -100,6 +100,29 @@ describe("JobsRuntime", () => {
       vi.useRealTimers();
     }
   });
+
+  it("retries scheduled turn failure with backoff instead of stopping", async () => {
+    vi.useFakeTimers();
+    try {
+      const runtime = makeRuntime();
+      runtime.cron.schedule("* * * * *", "boom");
+      runtime.cron.pollDue(new Date(2026, 8, 14, 10, 30));
+      let attempts = 0;
+      runtime.setCronTurn(async () => {
+        attempts += 1;
+        throw new Error("fail");
+      });
+      runtime.start();
+      await vi.advanceTimersByTimeAsync(200);
+      expect(attempts).toBe(1);
+      await vi.advanceTimersByTimeAsync(400);
+      expect(attempts).toBe(2);
+      expect(runtime.started).toBe(true);
+      runtime.stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe("AgentLock", () => {

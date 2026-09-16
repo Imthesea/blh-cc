@@ -35,12 +35,15 @@ export function buildHarness(workdir?: string): Harness {
       input: process.stdin,
       output: process.stdout,
     });
-    return new Promise<string>((resolve) =>
+    return new Promise<string>((resolve) => {
+      const onClose = () => resolve("");
+      readlineInterface.once("close", onClose);
       readlineInterface.question(prompt, (answer) => {
+        readlineInterface.removeListener("close", onClose);
         readlineInterface.close();
         resolve(answer);
-      }),
-    );
+      });
+    });
   });
   hooks.register(PRE_TOOL_USE, (payload) => permissionHook(payload.name, payload.input));
   registerCompactTool(tools);
@@ -49,6 +52,7 @@ export function buildHarness(workdir?: string): Harness {
   registerPlanningTools(tools, todoManager, taskStore);
   const memory = new Memory(new MemoryStore(path.join(config.workdir, ".memory")), provider);
   const cron = new CronScheduler(path.join(config.workdir, ".scheduled_tasks.json"));
+  cron.load();
   registerJobsTools(tools, cron);
   const jobs = new JobsRuntime(
     new BackgroundManager(config.workdir, config.bashTimeout, config.maxOutputChars),

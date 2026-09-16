@@ -50,6 +50,7 @@ export class JobsRuntime {
   private cronTurn: (() => Promise<void>) | null = null;
   private schedulerTimer: NodeJS.Timeout | undefined;
   private queueTimer: NodeJS.Timeout | undefined;
+  private queueFailures = 0;
   started = false;
 
   constructor(
@@ -87,7 +88,6 @@ export class JobsRuntime {
 
   start(): void {
     if (this.started) return;
-    this.cron.load();
     this.schedulerTimer = setInterval(() => {
       try {
         this.cron.pollDue(new Date());
@@ -98,24 +98,36 @@ export class JobsRuntime {
       }
     }, 1000);
     this.schedulerTimer.unref();
-    this.queueTimer = setInterval(() => {
-      this.processQueue().catch((error: unknown) => {
-        // cronTurn 失败：停止队列处理（等价线程死亡，避免每 200ms 重试）
-        if (this.queueTimer !== undefined) clearInterval(this.queueTimer);
-        console.log(`  [cron] queue processor stopped: ${error}`);
-      });
-    }, 200);
-    this.queueTimer.unref();
     this.started = true;
+    this.scheduleQueuePoll();
   }
 
   stop(): void {
     if (!this.started) return;
+    this.started = false;
     if (this.schedulerTimer !== undefined) clearInterval(this.schedulerTimer);
-    if (this.queueTimer !== undefined) clearInterval(this.queueTimer);
+    if (this.queueTimer !== undefined) clearTimeout(this.queueTimer);
     this.schedulerTimer = undefined;
     this.queueTimer = undefined;
-    this.started = false;
+    this.queueFailures = 0;
+  }
+
+  private scheduleQueuePoll(): void {
+    if (!this.started) return;
+    const delay = Math.min(200 * 2 ** this.queueFailures, 30000);
+    this.queueTimer = setTimeout(() => {
+      this.processQueue()
+        .then(() => {
+          this.queueFailures = 0;
+          this.scheduleQueuePoll();
+        })
+        .catch((error: unknown) => {
+          this.queueFailures += 1;
+          console.log(`  [cron] scheduled turn failed (retry ${this.queueFailures}): ${error}`);
+          this.scheduleQueuePoll();
+        });
+    }, delay);
+    this.queueTimer.unref();
   }
 
   private async processQueue(): Promise<void> {

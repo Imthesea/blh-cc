@@ -27,6 +27,7 @@ describe("loadConfig", () => {
   it("defaults model and baseUrl", async () => {
     vi.stubEnv("OPENAI_API_KEY", "sk-test");
     vi.stubEnv("OPENAI_BASE_URL", "");
+    vi.stubEnv("OPENAI_MODEL", "");
     const { loadConfig } = await import("../../src/core/config.js");
     const config = loadConfig();
     expect(config.model).toBe("gpt-4o-mini");
