@@ -48,5 +48,5 @@ export interface Config {
 }
 
 export interface ChatProvider {
-  chat(messages: ChatMessage[], tools: ToolDefinition[]): Promise<ChatMessage>;
+  chat(messages: ChatMessage[], tools: ToolDefinition[], maxTokens?: number): Promise<ChatMessage>;
 }
