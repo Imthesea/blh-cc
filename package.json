@@ -18,7 +18,8 @@
   },
   "dependencies": {
     "dotenv": "^16.0.0",
-    "openai": "^4.77.0"
+    "openai": "^4.77.0",
+    "yaml": "^2.9.1"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
