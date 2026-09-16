@@ -12,6 +12,9 @@ import type { ChatMessage, ChatProvider, Config, ToolDefinition } from "../../sr
 import { TodoManager } from "../../src/planning/todo.js";
 import { MemoryStore } from "../../src/memory/store.js";
 import { Memory } from "../../src/memory/system.js";
+import { BackgroundManager } from "../../src/jobs/background.js";
+import { CronScheduler } from "../../src/jobs/cron.js";
+import { JobsRuntime } from "../../src/jobs/runtime.js";
 
 const config: Config = {
   apiKey: "k",
@@ -30,6 +33,7 @@ function makeHarness(
     provider?: ChatProvider;
     todoManager?: TodoManager;
     memory?: Memory;
+    jobs?: JobsRuntime;
   } = {},
 ) {
   const tools = new ToolRegistry();
@@ -48,6 +52,7 @@ function makeHarness(
     options.compactor,
     options.todoManager,
     options.memory,
+    options.jobs,
   );
 }
 
@@ -397,5 +402,79 @@ describe("runTurn memory 集成", () => {
     await harness.runTurn(harness.newSession(), "hi");
     expect(memory.extracted).not.toBeNull();
     expect(memory.consolidated).toBe(true);
+  });
+});
+
+describe("agentLoop jobs 集成", () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), "loop-jobs-"));
+  });
+
+  afterEach(async () => {
+    // Windows：后台进程可能仍以 tmpDir 为 cwd，立即 rmSync 会 EPERM；轮询重试直到进程退出
+    const deadline = Date.now() + 5000;
+    for (;;) {
+      try {
+        rmSync(tmpDir, { recursive: true, force: true });
+        return;
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        if ((code !== "EPERM" && code !== "EBUSY") || Date.now() >= deadline) throw error;
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+    }
+  });
+
+  function makeJobs(): JobsRuntime {
+    return new JobsRuntime(
+      new BackgroundManager(tmpDir),
+      new CronScheduler(path.join(tmpDir, ".scheduled_tasks.json")),
+    );
+  }
+
+  it("runTurn 启动后台 bash 并返回占位结果", async () => {
+    const jobs = makeJobs();
+    const bashTool: ToolDefinition = {
+      name: "bash",
+      description: "",
+      parameters: {
+        type: "object",
+        properties: {
+          command: { type: "string" },
+          run_in_background: { type: "boolean" },
+        },
+        required: ["command"],
+      },
+      handler: async () => "SYNC",
+    };
+    const harness = makeHarness(
+      [
+        makeToolCallMessage("bash", { command: "echo hi", run_in_background: true }),
+        makeTextMessage("done"),
+      ],
+      { tools: [bashTool], jobs },
+    );
+    const messages = harness.newSession();
+    await harness.runTurn(messages, "go");
+    const toolResults = messages.filter((m) => m.role === "tool");
+    expect(toolResults[0]?.content).toContain("Background task bg_");
+  });
+
+  it("runTurn 注入后台完成结果通知", async () => {
+    const jobs = makeJobs();
+    const taskId = jobs.background.start("echo hello");
+    const deadline = Date.now() + 5000;
+    while (jobs.background.tasks[taskId]?.status === "running" && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    const harness = makeHarness([makeTextMessage("done")], { jobs });
+    const messages = harness.newSession();
+    await harness.runTurn(messages, "continue");
+    const userMessages = messages.filter((m) => m.role === "user");
+    expect(
+      userMessages.some((m) => (m.content ?? "").includes("<task_notification>")),
+    ).toBe(true);
   });
 });

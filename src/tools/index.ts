@@ -15,6 +15,7 @@ export function registerBuiltinTools(registry: ToolRegistry, config: Config): vo
       properties: {
         command: { type: "string", description: "Shell command to execute" },
         timeout: { type: "number", description: "Timeout in seconds (default 120)" },
+        run_in_background: { type: "boolean" },
       },
       required: ["command"],
     },

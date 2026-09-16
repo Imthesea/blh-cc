@@ -37,7 +37,7 @@ describe("registerBuiltinTools", () => {
     ]);
   });
 
-  it("bash tool schema has no run_in_background in M0", async () => {
+  it("bash tool schema includes run_in_background", async () => {
     const { registerBuiltinTools } = await import("../../src/tools/index.js");
     const reg = new ToolRegistry();
     registerBuiltinTools(reg, config);
@@ -47,6 +47,7 @@ describe("registerBuiltinTools", () => {
       properties: {
         command: { type: "string", description: "Shell command to execute" },
         timeout: { type: "number", description: "Timeout in seconds (default 120)" },
+        run_in_background: { type: "boolean" },
       },
       required: ["command"],
     });

@@ -42,6 +42,9 @@ export async function agentLoop(
       messages.splice(0, messages.length, ...prepared);
       restoreSystem(messages, systemMessage);
     }
+    if (harness.jobs) {
+      harness.jobs.injectBackgroundResults(messages);
+    }
     let message: ChatMessage;
     try {
       message = await harness.provider.chat(messages, harness.tools.list());
@@ -70,6 +73,22 @@ export async function agentLoop(
         // compact 由 loop 拦截：先闭合本批次，再压缩，不走 dispatch/hooks
         result = "Compaction requested after this tool batch.";
         compactRequested = true;
+      } else if (
+        harness.jobs !== undefined &&
+        name === "bash" &&
+        input["run_in_background"] === true
+      ) {
+        const blocked = await harness.hooks.firstBlock(PRE_TOOL_USE, { name, input });
+        if (blocked !== null) {
+          result = blocked;
+        } else {
+          try {
+            result = harness.jobs.startBackground(String(input["command"] ?? ""));
+          } catch (error) {
+            result = `error: ${error instanceof Error ? error.message : String(error)}`;
+          }
+          await harness.hooks.trigger(POST_TOOL_USE, { name, input, output: result });
+        }
       } else {
         const blocked = await harness.hooks.firstBlock(PRE_TOOL_USE, { name, input });
         if (blocked !== null) {
