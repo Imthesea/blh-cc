@@ -38,6 +38,19 @@ describe("TaskStore", () => {
     expect(store.load(task.id)).toEqual(task);
   });
 
+  it("create defaults worktree to null", () => {
+    const store = makeStore();
+    expect(store.create("s").worktree).toBeNull();
+  });
+
+  it("worktree roundtrips through save/load", () => {
+    const store = makeStore();
+    const task = store.create("s");
+    task.worktree = "wt-1";
+    store.save(task);
+    expect(store.load(task.id).worktree).toBe("wt-1");
+  });
+
   it("load missing raises", () => {
     expect(() => makeStore().load("task_deadbeef")).toThrow();
   });

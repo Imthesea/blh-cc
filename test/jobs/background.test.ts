@@ -46,6 +46,13 @@ describe("BackgroundManager", () => {
     expect(makeManager().collect()).toEqual([]);
   });
 
+  it("hasRunning reports active tasks", () => {
+    const manager = makeManager();
+    expect(manager.hasRunning()).toBe(false);
+    manager.start("echo hi");
+    expect(manager.hasRunning()).toBe(true);
+  });
+
   it("failed command marks failed", async () => {
     const manager = makeManager();
     const bgId = manager.start("exit 1");

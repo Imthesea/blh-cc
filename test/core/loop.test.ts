@@ -4,6 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { agentLoop, lastAssistantText, parseToolArguments } from "../../src/core/loop.js";
 import { Harness } from "../../src/core/harness.js";
+import type { TeamAgents } from "../../src/core/harness.js";
 import { ToolRegistry } from "../../src/tools/registry.js";
 import { HookBus, PRE_TOOL_USE } from "../../src/core/hooks.js";
 import { ContextCompactor } from "../../src/compaction/compactor.js";
@@ -15,6 +16,9 @@ import { Memory } from "../../src/memory/system.js";
 import { BackgroundManager } from "../../src/jobs/background.js";
 import { CronScheduler } from "../../src/jobs/cron.js";
 import { JobsRuntime } from "../../src/jobs/runtime.js";
+import { GoalController } from "../../src/goals/controller.js";
+import type { GoalEvaluator } from "../../src/goals/evaluator.js";
+import type { GoalEvaluation } from "../../src/goals/types.js";
 
 const config: Config = {
   apiKey: "k",
@@ -34,6 +38,8 @@ function makeHarness(
     todoManager?: TodoManager;
     memory?: Memory;
     jobs?: JobsRuntime;
+    agents?: TeamAgents;
+    goal?: GoalController;
   } = {},
 ) {
   const tools = new ToolRegistry();
@@ -53,6 +59,9 @@ function makeHarness(
     options.todoManager,
     options.memory,
     options.jobs,
+    options.agents,
+    undefined,
+    options.goal,
   );
 }
 
@@ -107,6 +116,50 @@ describe("agentLoop", () => {
       tool_call_id: "call_1",
       content: "denied by user",
     });
+  });
+});
+
+function sequentialEvaluator(results: GoalEvaluation[]): GoalEvaluator {
+  let index = 0;
+  return {
+    evaluate: async () => results[index++] ?? results[results.length - 1]!,
+  };
+}
+
+describe("agentLoop goal stop hook", () => {
+  it("block 续行", async () => {
+    const goal = new GoalController(
+      sequentialEvaluator([
+        { ok: false, reason: "not yet", impossible: false },
+        { ok: true, reason: "done", impossible: false },
+      ]),
+    );
+    goal.setGoal("finish");
+    const provider = new MockProvider([makeTextMessage("try1"), makeTextMessage("done")]);
+    const harness = makeHarness([], { provider, goal });
+    const messages = harness.newSession();
+    await harness.runTurn(messages, "go");
+    expect(
+      messages.some(
+        (m) => m.role === "user" && (m.content ?? "").includes("[Goal still active]"),
+      ),
+    ).toBe(true);
+    expect(lastAssistantText(messages)).toBe("done");
+  });
+
+  it("achieved 返回", async () => {
+    const goal = new GoalController(
+      sequentialEvaluator([{ ok: true, reason: "done", impossible: false }]),
+    );
+    goal.setGoal("finish");
+    const harness = makeHarness([makeTextMessage("done")], { goal });
+    const messages = harness.newSession();
+    await harness.runTurn(messages, "go");
+    expect(lastAssistantText(messages)).toBe("done");
+    expect(goal.active).toBeNull();
+    expect(
+      messages.some((m) => (m.content ?? "").includes("[Goal still active]")),
+    ).toBe(false);
   });
 });
 
@@ -504,6 +557,53 @@ describe("agentLoop jobs 集成", () => {
     await harness.runTurn(messages, "go");
     const toolResults = messages.filter((m) => m.role === "tool");
     expect(toolResults[0]?.content).toContain("error: Bash command cannot be empty");
+  });
+});
+
+describe("runTeamTurn", () => {
+  it("injects team events and loops", async () => {
+    let consumed = 0;
+    const agents: TeamAgents = {
+      consumeAndInjectTeam(messages: ChatMessage[]): number {
+        consumed += 1;
+        if (consumed === 1) {
+          messages.push({ role: "user", content: "[Team events]\nbob: done" });
+          return 1;
+        }
+        return 0;
+      },
+    };
+    const harness = makeHarness([makeTextMessage("acknowledged")], { agents });
+    const messages = harness.newSession();
+    await harness.runTeamTurn(messages);
+    expect(consumed).toBe(1);
+    expect(lastAssistantText(messages)).toBe("acknowledged");
+  });
+
+  it("loop dispatches task tool", async () => {
+    const seen: string[] = [];
+    const taskTool: ToolDefinition = {
+      name: "task",
+      description: "",
+      parameters: {
+        type: "object",
+        properties: { prompt: { type: "string" } },
+        required: ["prompt"],
+      },
+      handler: async (args) => {
+        seen.push(String(args["prompt"] ?? ""));
+        return "sub-result";
+      },
+    };
+    const harness = makeHarness(
+      [makeToolCallMessage("task", { prompt: "explore" }), makeTextMessage("done")],
+      { tools: [taskTool] },
+    );
+    const messages = harness.newSession();
+    await harness.runTurn(messages, "go");
+    const toolResults = messages.filter((m) => m.role === "tool");
+    expect(toolResults[0]?.content).toBe("sub-result");
+    expect(seen).toEqual(["explore"]);
   });
 });
 

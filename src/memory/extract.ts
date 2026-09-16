@@ -3,6 +3,9 @@ import { readFileSync, readdirSync, unlinkSync, writeFileSync } from "node:fs";
 import type { ChatMessage, ChatProvider } from "../core/types.js";
 import { INDEX_NAME, MEMORY_TYPES, MemoryStore } from "./store.js";
 import { extractJsonArray, messageText } from "./text.js";
+import { createLogger } from "../core/logger.js";
+
+const log = createLogger("memory.extract");
 
 export type ValidatedMemoryRecord = {
   name: string;
@@ -100,11 +103,11 @@ export class MemoryExtractor {
       }
 
       if (stored) {
-        console.log(`[Memory: stored ${stored} records]`);
+        log.info("stored records", { stored });
       }
       return stored;
     } catch (error) {
-      console.log(`[Memory extraction skipped: ${error instanceof Error ? error.message : String(error)}]`);
+      log.warn("extraction skipped", { error: error instanceof Error ? error.message : String(error) });
       return 0;
     }
   }
@@ -187,10 +190,10 @@ export class MemoryExtractor {
         throw writeError;
       }
 
-      console.log(`[Memory: consolidated ${records.length} to ${consolidated.length} records]`);
+      log.info("consolidated records", { from: records.length, to: consolidated.length });
       return consolidated.length;
     } catch (error) {
-      console.log(`[Memory consolidation skipped: ${error instanceof Error ? error.message : String(error)}]`);
+      log.warn("consolidation skipped", { error: error instanceof Error ? error.message : String(error) });
       return 0;
     }
   }

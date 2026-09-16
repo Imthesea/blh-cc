@@ -1,6 +1,9 @@
 import type { ChatMessage } from "../core/types.js";
 import type { BackgroundManager } from "./background.js";
 import type { CronJob, CronScheduler } from "./cron.js";
+import { createLogger } from "../core/logger.js";
+
+const log = createLogger("jobs.runtime");
 
 /** 异步互斥锁：tryAcquire 同步抢锁；acquire 排队等待；release 把所有权移交下一个等待者 */
 export class AgentLock {
@@ -94,7 +97,7 @@ export class JobsRuntime {
       } catch (error) {
         // Python 等价：线程未捕获异常 → 线程死亡；TS 停表 + 记录，避免崩进程
         if (this.schedulerTimer !== undefined) clearInterval(this.schedulerTimer);
-        console.log(`  [cron] scheduler stopped: ${error}`);
+        log.warn("cron scheduler stopped", { error: String(error) });
       }
     }, 1000);
     this.schedulerTimer.unref();
@@ -123,7 +126,7 @@ export class JobsRuntime {
         })
         .catch((error: unknown) => {
           this.queueFailures += 1;
-          console.log(`  [cron] scheduled turn failed (retry ${this.queueFailures}): ${error}`);
+          log.warn("cron scheduled turn failed", { retry: this.queueFailures, error: String(error) });
           this.scheduleQueuePoll();
         });
     }, delay);

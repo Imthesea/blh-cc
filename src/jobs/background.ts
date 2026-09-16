@@ -113,6 +113,10 @@ export class BackgroundManager {
     this.ready.push(taskId);
   }
 
+  hasRunning(): boolean {
+    return Object.values(this.tasks).some((task) => task.status === "running");
+  }
+
   collect(): string[] {
     const ready: Array<[string, BackgroundTask, string]> = [];
     for (const taskId of this.ready) {

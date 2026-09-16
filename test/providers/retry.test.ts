@@ -1,16 +1,63 @@
-import { describe, it, expect, vi } from "vitest";
-import { retryDelay, isRetryable, withRetry } from "../../src/providers/retry.js";
+import { afterEach, describe, it, expect, vi } from "vitest";
+import { retryDelay, retryAfterSeconds, isRetryable, withRetry } from "../../src/providers/retry.js";
 
 function httpError(status: number): Error & { status: number } {
   return Object.assign(new Error(`http ${status}`), { status });
 }
 
+function retryableError(
+  status: number,
+  headers?: { get(name: string): string | null },
+): Error & { status: number; headers?: { get(name: string): string | null } } {
+  return Object.assign(new Error(`http ${status}`), {
+    status,
+    ...(headers ? { headers } : {}),
+  });
+}
+
+describe("retryAfterSeconds", () => {
+  it("from header", () => {
+    const error = retryableError(429, {
+      get: (name) => (name === "Retry-After" ? "3" : null),
+    });
+    expect(retryAfterSeconds(error)).toBe(3);
+  });
+
+  it("invalid returns undefined", () => {
+    const error = retryableError(429, {
+      get: (name) => (name === "Retry-After" ? "abc" : null),
+    });
+    expect(retryAfterSeconds(error)).toBeUndefined();
+  });
+
+  it("no headers returns undefined", () => {
+    expect(retryAfterSeconds(new Error("boom"))).toBeUndefined();
+  });
+});
+
 describe("retryDelay", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it("doubles with attempt, capped at 32", () => {
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
     expect(retryDelay(0)).toBe(1);
     expect(retryDelay(1)).toBe(2);
     expect(retryDelay(5)).toBe(32);
     expect(retryDelay(10)).toBe(32);
+  });
+
+  it("bounded and jittered", () => {
+    vi.spyOn(Math, "random").mockReturnValue(0);
+    expect(retryDelay(10)).toBe(16);
+  });
+
+  it("prefers Retry-After", () => {
+    const error = retryableError(429, {
+      get: (name) => (name === "Retry-After" ? "7" : null),
+    });
+    expect(retryDelay(0, error)).toBe(7);
   });
 });
 

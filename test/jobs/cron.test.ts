@@ -142,10 +142,11 @@ describe("CronScheduler", () => {
 
   it("load corrupt file reports error", () => {
     writeFileSync(durablePath, "{broken");
-    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const sched = makeScheduler();
     sched.load();
-    expect(logSpy.mock.calls.flat().join(" ")).toContain("could not load");
+    const written = stderrSpy.mock.calls.map((call) => String(call[0])).join(" ");
+    expect(written).toContain("could not load");
     expect(sched.listJobs()).toEqual([]);
   });
 });

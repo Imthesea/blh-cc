@@ -12,6 +12,8 @@ export const DEFAULT_RULES: PermissionRule[] = [
   { tool: "bash", target: "git push --force*", action: "deny" },
   { tool: "bash", target: "rm -rf /*", action: "deny" },
   { tool: "bash", target: "*", action: "ask" },
+  { tool: "mcp__*", target: "*", action: "ask" },
+  { tool: "connect_mcp", target: "*", action: "ask" },
   { tool: "*", target: "*", action: "allow" },
 ];
 
@@ -21,8 +23,7 @@ export function matchRule(
   target: string,
 ): PermissionAction {
   for (const rule of rules) {
-    // M0：工具名精确匹配或 "*"（不用 fnmatch 匹配工具名——那是 M6）
-    if (rule.tool !== tool && rule.tool !== "*") continue;
+    if (rule.tool !== "*" && !fnmatch(tool, rule.tool)) continue;
     if (fnmatch(target, rule.target)) return rule.action;
   }
   return "ask";

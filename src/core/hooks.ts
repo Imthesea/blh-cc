@@ -1,3 +1,7 @@
+import { createLogger } from "./logger.js";
+
+const log = createLogger("core.hooks");
+
 export const USER_PROMPT_SUBMIT = "user_prompt_submit";
 export const PRE_TOOL_USE = "pre_tool_use";
 export const POST_TOOL_USE = "post_tool_use";
@@ -32,6 +36,7 @@ export class HookBus {
     event: E,
     payload: HookPayloads[E],
   ): Promise<Array<string | null>> {
+    log.debug("trigger", { event });
     const results: Array<string | null> = [];
     for (const fn of this.hooks.get(event) ?? []) {
       results.push(await fn(payload));
@@ -43,6 +48,7 @@ export class HookBus {
     event: E,
     payload: HookPayloads[E],
   ): Promise<string | null> {
+    log.debug("firstBlock", { event });
     for (const fn of this.hooks.get(event) ?? []) {
       const result = await fn(payload);
       if (result !== null) return result;

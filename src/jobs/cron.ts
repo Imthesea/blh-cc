@@ -3,6 +3,9 @@
 import { randomBytes } from "node:crypto";
 import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import * as path from "node:path";
+import { createLogger } from "../core/logger.js";
+
+const log = createLogger("jobs.cron");
 
 function cronFieldMatches(field: string, value: number): boolean {
   if (field === "*") return true;
@@ -257,7 +260,7 @@ export class CronScheduler {
         this.save();
       } catch (saveError) {
         // 持久化失败仅记录,at-least-once 允许重复
-        console.log(`  [cron] acknowledgement persistence failed: ${saveError}`);
+        log.warn("acknowledgement persistence failed", { error: String(saveError) });
       }
     }
   }
@@ -286,7 +289,7 @@ export class CronScheduler {
       payload = JSON.parse(readFileSync(this.durablePath, "utf-8"));
       if (!Array.isArray(payload)) throw new Error("expected a JSON list");
     } catch (loadError) {
-      console.log(`  [cron] could not load ${path.basename(this.durablePath)}: ${loadError}`);
+      log.warn("could not load durable file", { file: path.basename(this.durablePath), error: String(loadError) });
       return;
     }
     for (const item of payload) {
@@ -299,7 +302,7 @@ export class CronScheduler {
         this.jobs[job.id] = job;
         if (job.pending_delivery) this.queue.push(job);
       } catch (itemError) {
-        console.log(`  [cron] skipped invalid saved job: ${itemError}`);
+        log.warn("skipped invalid saved job", { error: String(itemError) });
       }
     }
   }

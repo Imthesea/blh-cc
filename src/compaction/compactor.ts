@@ -2,6 +2,9 @@ import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import * as path from "node:path";
 import type { ChatMessage, ChatProvider } from "../core/types.js";
+import { createLogger } from "../core/logger.js";
+
+const log = createLogger("compaction.compactor");
 
 export const SUMMARY_SYSTEM =
   "Summarize the supplied coding-agent conversation as factual state. " +
@@ -12,8 +15,6 @@ export interface CompactorOptions {
   provider: ChatProvider;
   transcriptDir: string;
   toolResultsDir: string;
-  /** 可选通知回调（留档/压缩提示），默认静默；CLI 装配时传 console.log */
-  notify?: (message: string) => void;
 }
 
 export class ContextCompactor {
@@ -27,7 +28,6 @@ export class ContextCompactor {
   readonly provider: ChatProvider;
   readonly transcriptDir: string;
   readonly toolResultsDir: string;
-  readonly notify: (message: string) => void;
 
   /** 实例级上下文阈值，默认取静态常量；测试可覆写（TS 实例无法遮蔽 static） */
   contextCharLimit: number = ContextCompactor.CONTEXT_CHAR_LIMIT;
@@ -36,7 +36,6 @@ export class ContextCompactor {
     this.provider = options.provider;
     this.transcriptDir = options.transcriptDir;
     this.toolResultsDir = options.toolResultsDir;
-    this.notify = options.notify ?? (() => {});
   }
 
   static estimateChars(messages: ChatMessage[]): number {
@@ -309,7 +308,7 @@ export class ContextCompactor {
     activeRequest: string,
   ): Promise<ChatMessage[]> {
     const transcript = this.writeTranscript(messages);
-    this.notify(`[transcript saved: ${transcript}]`);
+    log.info("transcript saved", { path: transcript });
     const summary = await this.summarizeHistory(messages);
     return [
       ContextCompactor.summaryMessage("Compacted", activeRequest, summary, transcript),
@@ -322,7 +321,7 @@ export class ContextCompactor {
     activeRequest: string,
   ): Promise<ChatMessage[]> {
     const transcript = this.writeTranscript(messages);
-    this.notify(`[transcript saved: ${transcript}]`);
+    log.info("transcript saved", { path: transcript });
     const fallback: ChatMessage = { role: "user", content: null };
     let tailStart = Math.max(
       0,
@@ -359,7 +358,7 @@ export class ContextCompactor {
         prepared = this.fitToolResults(prepared, target);
       }
       if (ContextCompactor.estimateChars(prepared) > this.contextCharLimit) {
-        this.notify("[auto compact]");
+        log.info("auto compact");
         prepared = await this.compactHistory(prepared, activeRequest);
       }
     }

@@ -7,6 +7,9 @@ import type {
   ToolDefinition,
 } from "../core/types.js";
 import { withRetry } from "./retry.js";
+import { createLogger } from "../core/logger.js";
+
+const log = createLogger("providers.openai");
 
 /** 最小化的 client 结构：provider 只依赖 chat.completions.create，便于测试注入 */
 export interface ChatCompletionsClient {
@@ -71,33 +74,69 @@ export class OpenAIProvider implements ChatProvider {
       });
   }
 
-  async chat(messages: ChatMessage[], tools: ToolDefinition[], maxTokens?: number): Promise<ChatMessage> {
-    const response = await withRetry(() =>
-      this.client.chat.completions.create(
-        {
-          model: this.config.model,
-          messages: messages.map(toOpenAIMessage),
-          ...(tools.length
-            ? {
-                tools: tools.map((tool) => ({
-                  type: "function" as const,
-                  function: {
-                    name: tool.name,
-                    description: tool.description,
-                    parameters: tool.parameters,
-                  },
-                })),
-              }
-            : {}),
-          ...(maxTokens !== undefined ? { max_tokens: maxTokens } : {}),
-        },
-        { timeout: 600_000 },
-      ),
+  private async createCompletion(
+    params: OpenAI.ChatCompletionCreateParamsNonStreaming,
+  ): Promise<OpenAI.ChatCompletion> {
+    return withRetry(() =>
+      this.client.chat.completions.create(params, { timeout: 600_000 }),
     );
+  }
+
+  async chat(messages: ChatMessage[], tools: ToolDefinition[], maxTokens?: number): Promise<ChatMessage> {
+    log.debug("chat request", { model: this.config.model, messages: messages.length, tools: tools.length });
+    const response = await this.createCompletion({
+      model: this.config.model,
+      messages: messages.map(toOpenAIMessage),
+      ...(tools.length
+        ? {
+            tools: tools.map((tool) => ({
+              type: "function" as const,
+              function: {
+                name: tool.name,
+                description: tool.description,
+                parameters: tool.parameters,
+              },
+            })),
+          }
+        : {}),
+      ...(maxTokens !== undefined ? { max_tokens: maxTokens } : {}),
+    });
     const message = response.choices[0]?.message;
     if (!message) throw new Error("provider returned no choices");
+    log.debug("chat response", { toolCalls: message.tool_calls?.length ?? 0 });
     return fromOpenAIMessage(message);
   }
+
+  /** 无 tools 单轮,额外返回 usage(供 workflow runner 记账)。 */
+  async chatCompletion(
+    messages: ChatMessage[],
+    maxTokens?: number,
+  ): Promise<{ message: ChatMessage; usage: ChatUsage }> {
+    log.debug("chatCompletion request", { model: this.config.model, messages: messages.length });
+    const response = await this.createCompletion({
+      model: this.config.model,
+      messages: messages.map(toOpenAIMessage),
+      ...(maxTokens !== undefined ? { max_tokens: maxTokens } : {}),
+    });
+    const message = response.choices[0]?.message;
+    if (!message) throw new Error("provider returned no choices");
+    log.debug("chatCompletion response", {
+      promptTokens: response.usage?.prompt_tokens ?? 0,
+      completionTokens: response.usage?.completion_tokens ?? 0,
+    });
+    return {
+      message: fromOpenAIMessage(message),
+      usage: {
+        promptTokens: response.usage?.prompt_tokens ?? 0,
+        completionTokens: response.usage?.completion_tokens ?? 0,
+      },
+    };
+  }
+}
+
+export interface ChatUsage {
+  promptTokens: number;
+  completionTokens: number;
 }
 
 const PROMPT_TOO_LONG_KEYWORDS = [

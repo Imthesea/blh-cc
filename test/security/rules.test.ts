@@ -2,8 +2,8 @@ import { describe, it, expect } from "vitest";
 import { matchRule, DEFAULT_RULES } from "../../src/security/rules.js";
 
 describe("DEFAULT_RULES", () => {
-  it("has exactly 4 rules in M0", () => {
-    expect(DEFAULT_RULES).toHaveLength(4);
+  it("has exactly 6 rules", () => {
+    expect(DEFAULT_RULES).toHaveLength(6);
   });
 });
 
@@ -32,9 +32,13 @@ describe("matchRule", () => {
     expect(matchRule([], "bash", "ls")).toBe("ask");
   });
 
-  it("matches tool name exactly or * (M0: no fnmatch on tool name)", () => {
+  it("matches tool name via fnmatch", () => {
     const rules = [{ tool: "read_*", target: "*", action: "deny" as const }];
-    // M0 语义：工具名不做 fnmatch，"read_*" 不等于 "read_file" → 落到下一条/默认
-    expect(matchRule(rules, "read_file", "x")).toBe("ask");
+    expect(matchRule(rules, "read_file", "x")).toBe("deny");
+  });
+
+  it("mcp_tools_ask_by_default", () => {
+    expect(matchRule(DEFAULT_RULES, "mcp__docs__search", "")).toBe("ask");
+    expect(matchRule(DEFAULT_RULES, "connect_mcp", "")).toBe("ask");
   });
 });

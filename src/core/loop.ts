@@ -2,6 +2,11 @@ import type { ChatMessage, ToolCall } from "./types.js";
 import type { Harness } from "./harness.js";
 import { PRE_TOOL_USE, POST_TOOL_USE } from "./hooks.js";
 import { isPromptTooLong } from "../providers/openai.js";
+import type { GoalController } from "../goals/controller.js";
+import type { StopDecision } from "../goals/types.js";
+import { createLogger } from "./logger.js";
+
+const log = createLogger("core.loop");
 
 const MAX_REACTIVE_RETRIES = 1;
 
@@ -36,6 +41,7 @@ export async function agentLoop(
     messages[0] ?? { role: "system", content: harness.systemPrompt };
   let reactiveRetries = 0;
   for (;;) {
+    log.debug("turn start", { messages: messages.length });
     const compactor = harness.compactor;
     if (compactor) {
       const prepared = await compactor.prepare(messages, activeRequest);
@@ -61,12 +67,20 @@ export async function agentLoop(
     }
     messages.push(message);
     const toolCalls: ToolCall[] = message.tool_calls ?? [];
-    if (toolCalls.length === 0) return;
+    if (toolCalls.length === 0) {
+      const decision = await evaluateGoalStop(harness, messages);
+      if (decision !== null && decision.action === "block") {
+        messages.push({ role: "user", content: goalReminder(harness.goal, decision) });
+        continue;
+      }
+      return;
+    }
 
     let compactRequested = false;
     let usedTodo = false;
     for (const call of toolCalls) {
       const name = call.function.name;
+      log.info("tool call", { tool: name });
       const input = parseToolArguments(call.function.arguments);
       let result: string;
       if (compactor && name === "compact") {
@@ -122,4 +136,20 @@ export async function agentLoop(
 /** 压缩/摘要会把 messages 换成不含 system 的新数组，此处按需把初始 system 挂回队首 */
 function restoreSystem(messages: ChatMessage[], systemMessage: ChatMessage): void {
   if (messages[0]?.role !== "system") messages.unshift(systemMessage);
+}
+
+async function evaluateGoalStop(harness: Harness, messages: ChatMessage[]): Promise<StopDecision | null> {
+  const goal = harness.goal;
+  if (goal === undefined) return null;
+  const backgroundRunning = harness.jobs !== undefined && harness.jobs.background.hasRunning();
+  return goal.evaluateAfterTurn(messages, backgroundRunning);
+}
+
+function goalReminder(goal: GoalController | undefined, decision: StopDecision): string {
+  const condition = goal?.active?.condition ?? "";
+  return (
+    `[Goal still active]\nCondition: ${condition}\n` +
+    `Evaluator: ${decision.reason}\n` +
+    "Continue working and surface the missing evidence."
+  );
 }

@@ -9,6 +9,7 @@ export interface Task {
   status: string;
   owner: string | null;
   blocked_by: string[];
+  worktree: string | null;
 }
 
 const VALID_STATUSES = ["pending", "in_progress", "completed"] as const;
@@ -41,6 +42,7 @@ export class TaskStore {
         status: "pending",
         owner: null,
         blocked_by: [],
+        worktree: null,
       };
       try {
         writeFileSync(this.pathFor(task.id), JSON.stringify(task, null, 2), {
@@ -58,13 +60,14 @@ export class TaskStore {
 
   load(taskId: string): Task {
     const data = JSON.parse(readFileSync(this.pathFor(taskId), "utf8")) as Task;
-    if (data.id !== taskId) {
-      throw new Error(`task file ID ${JSON.stringify(data.id)} != requested ${JSON.stringify(taskId)}`);
+    const task: Task = { ...data, worktree: data.worktree ?? null };
+    if (task.id !== taskId) {
+      throw new Error(`task file ID ${JSON.stringify(task.id)} != requested ${JSON.stringify(taskId)}`);
     }
-    if (!VALID_STATUSES.includes(data.status as (typeof VALID_STATUSES)[number])) {
-      throw new Error(`invalid task status: ${JSON.stringify(data.status)}`);
+    if (!VALID_STATUSES.includes(task.status as (typeof VALID_STATUSES)[number])) {
+      throw new Error(`invalid task status: ${JSON.stringify(task.status)}`);
     }
-    return data;
+    return task;
   }
 
   save(task: Task): void {

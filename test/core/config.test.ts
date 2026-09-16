@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 
@@ -41,12 +41,13 @@ describe("loadConfig", () => {
     const exitSpy = vi.spyOn(process, "exit").mockImplementation(() => {
       throw new Error("process.exit");
     });
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     expect(() => loadConfig()).toThrow("process.exit");
     expect(exitSpy).toHaveBeenCalledWith(1);
-    expect(errorSpy).toHaveBeenCalledWith("OPENAI_API_KEY is not set");
+    const written = stderrSpy.mock.calls.map((call) => String(call[0])).join("");
+    expect(written).toContain("OPENAI_API_KEY is not set");
     exitSpy.mockRestore();
-    errorSpy.mockRestore();
+    stderrSpy.mockRestore();
   });
 });
 
@@ -91,5 +92,81 @@ describe("loadConfig .env", () => {
     const { loadConfig } = await import("../../src/core/config.js");
     const config = loadConfig();
     expect(config.apiKey).toBe("sk-from-env");
+  });
+});
+
+describe("loadConfig file/cli", () => {
+  let tmpDir: string;
+  let tmpUserDir: string;
+
+  beforeEach(() => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), "config-file-"));
+    tmpUserDir = mkdtempSync(path.join(os.tmpdir(), "config-user-"));
+    process.chdir(tmpDir);
+    vi.stubEnv("OPENAI_MODEL", "");
+    vi.stubEnv("OPENAI_BASE_URL", "");
+    vi.stubEnv("BLH_BASH_TIMEOUT", "");
+    vi.stubEnv("BLH_MAX_OUTPUT_CHARS", "");
+  });
+
+  afterEach(() => {
+    process.chdir(originalCwd);
+    rmSync(tmpDir, { recursive: true, force: true });
+    rmSync(tmpUserDir, { recursive: true, force: true });
+  });
+
+  it("file overrides defaults", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "sk-test");
+    writeFileSync(path.join(tmpDir, ".blh.yaml"), "model: file-model\nmax_output_chars: 123\n");
+    const { loadConfig } = await import("../../src/core/config.js");
+    const config = loadConfig();
+    expect(config.model).toBe("file-model");
+    expect(config.maxOutputChars).toBe(123);
+  });
+
+  it("env overrides file", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "sk-test");
+    vi.stubEnv("OPENAI_MODEL", "env-model");
+    writeFileSync(path.join(tmpDir, ".blh.yaml"), "model: file-model\n");
+    const { loadConfig } = await import("../../src/core/config.js");
+    const config = loadConfig();
+    expect(config.model).toBe("env-model");
+  });
+
+  it("cli overrides all", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "sk-test");
+    vi.stubEnv("OPENAI_MODEL", "env-model");
+    writeFileSync(path.join(tmpDir, ".blh.yaml"), "model: file-model\n");
+    const { loadConfig } = await import("../../src/core/config.js");
+    const config = loadConfig(undefined, { model: "cli-model" });
+    expect(config.model).toBe("cli-model");
+  });
+
+  it("invalid int raises ConfigError", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "sk-test");
+    vi.stubEnv("BLH_BASH_TIMEOUT", "abc");
+    const { loadConfig, ConfigError } = await import("../../src/core/config.js");
+    expect(() => loadConfig()).toThrow(ConfigError);
+  });
+
+  it("user config then project config (project wins)", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "sk-test");
+    vi.stubEnv("USERPROFILE", tmpUserDir);
+    mkdirSync(path.join(tmpUserDir, ".config", "blh"), { recursive: true });
+    writeFileSync(
+      path.join(tmpUserDir, ".config", "blh", "config.yaml"),
+      "model: user-model\n",
+    );
+    writeFileSync(path.join(tmpDir, ".blh.yaml"), "model: project-model\n");
+    const { loadConfig } = await import("../../src/core/config.js");
+    const config = loadConfig();
+    expect(config.model).toBe("project-model");
+  });
+
+  it("config file non-mapping raises ConfigError", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "sk-test");
+    writeFileSync(path.join(tmpDir, ".blh.yaml"), "- a\n- b\n");
+    const { loadConfig, ConfigError } = await import("../../src/core/config.js");
+    expect(() => loadConfig()).toThrow(ConfigError);
   });
 });

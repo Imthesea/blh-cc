@@ -7,4 +7,7 @@ dist/
 .task_outputs/
 .tasks/
 .memory/
+.blh/
 .scheduled_tasks.json
+.mailboxes/
+.worktrees/
