@@ -8,6 +8,9 @@ export type PermissionHook = (
   args: Record<string, unknown>,
 ) => Promise<string | null>;
 
+/** scheduled turn 上下文标志（等价 Python 非主线程检测） */
+export const approvalContext = { scheduledTurn: false };
+
 export function makePermissionHook(
   rules: PermissionRule[],
   askUser?: AskUser,
@@ -28,6 +31,9 @@ export function makePermissionHook(
     if (action === "allow") return null;
     if (action === "deny") {
       return `denied by permission rule (${tool}: ${target})`;
+    }
+    if (approvalContext.scheduledTurn) {
+      return "denied: cannot request approval from a scheduled turn";
     }
     const answer = (await ask(`allow ${tool}(${target})? [y/N] `)).trim().toLowerCase();
     if (answer === "y" || answer === "yes") return null;

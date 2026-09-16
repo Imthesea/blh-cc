@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { makePermissionHook } from "../../src/security/approval.js";
+import { makePermissionHook, approvalContext } from "../../src/security/approval.js";
 import { DEFAULT_RULES } from "../../src/security/rules.js";
 
 describe("makePermissionHook", () => {
@@ -41,5 +41,18 @@ describe("makePermissionHook", () => {
     await expect(hook("write_file", { path: "prod.env" })).resolves.toBe(
       "denied by permission rule (write_file: prod.env)",
     );
+  });
+
+  it("denies interactive approval inside a scheduled turn", async () => {
+    const askUser = vi.fn().mockResolvedValue("y");
+    const hook = makePermissionHook(DEFAULT_RULES, askUser);
+    approvalContext.scheduledTurn = true;
+    try {
+      const result = await hook("bash", { command: "ls" });
+      expect(result).toBe("denied: cannot request approval from a scheduled turn");
+      expect(askUser).not.toHaveBeenCalled();
+    } finally {
+      approvalContext.scheduledTurn = false;
+    }
   });
 });

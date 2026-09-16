@@ -3,6 +3,7 @@ import type { ToolRegistry } from "../tools/registry.js";
 import type { HookBus } from "./hooks.js";
 import { USER_PROMPT_SUBMIT, STOP } from "./hooks.js";
 import { agentLoop } from "./loop.js";
+import { approvalContext } from "../security/approval.js";
 import type { ContextCompactor } from "../compaction/compactor.js";
 import type { TodoManager } from "../planning/todo.js";
 import type { Memory } from "../memory/system.js";
@@ -62,12 +63,15 @@ export class Harness {
     const scheduledStart = messages.length;
     const fired = jobs.consumeAndInjectCron(messages);
     if (fired.length === 0) return;
+    approvalContext.scheduledTurn = true;
     try {
       await agentLoop(this, messages, "[scheduled]");
     } catch (error) {
       messages.splice(scheduledStart);
       jobs.cron.restore(fired);
       throw error;
+    } finally {
+      approvalContext.scheduledTurn = false;
     }
     jobs.cron.acknowledge(fired);
     await this.hooks.trigger(STOP, {});
