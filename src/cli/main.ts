@@ -17,6 +17,8 @@ import { repl, makeReadlineIO } from "./repl.js";
 import { TaskStore } from "../planning/tasks.js";
 import { TodoManager } from "../planning/todo.js";
 import { registerPlanningTools } from "../planning/tools.js";
+import { MemoryStore } from "../memory/store.js";
+import { Memory } from "../memory/system.js";
 
 export function buildHarness(workdir?: string): Harness {
   const config = loadConfig(workdir);
@@ -41,13 +43,14 @@ export function buildHarness(workdir?: string): Harness {
   const todoManager = new TodoManager();
   const taskStore = new TaskStore(path.join(config.workdir, ".tasks"));
   registerPlanningTools(tools, todoManager, taskStore);
+  const memory = new Memory(new MemoryStore(path.join(config.workdir, ".memory")), provider);
   const compactor = new ContextCompactor({
     provider,
     transcriptDir: path.join(config.workdir, ".transcripts"),
     toolResultsDir: path.join(config.workdir, ".task_outputs", "tool-results"),
     notify: (message) => console.log(message),
   });
-  return new Harness(config, provider, tools, hooks, compactor, todoManager);
+  return new Harness(config, provider, tools, hooks, compactor, todoManager, memory);
 }
 
 async function main(): Promise<void> {

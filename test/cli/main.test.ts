@@ -41,4 +41,11 @@ describe("buildHarness 装配", () => {
       expect(names).toContain(name);
     }
   });
+
+  it("memory 装配到 .memory 目录", async () => {
+    const { buildHarness } = await import("../../src/cli/main.js");
+    const harness = buildHarness(tmpDir);
+    expect(harness.memory).toBeDefined();
+    expect(harness.memory?.store.directory).toBe(path.join(tmpDir, ".memory"));
+  });
 });

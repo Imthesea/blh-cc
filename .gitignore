@@ -6,3 +6,4 @@ dist/
 .transcripts/
 .task_outputs/
 .tasks/
+.memory/
