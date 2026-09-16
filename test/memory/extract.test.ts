@@ -103,4 +103,52 @@ describe("MemoryExtractor", () => {
     const extractor = new MemoryExtractor(store, new Boom());
     expect(await extractor.extractMemories([{ role: "user", content: "hi" }])).toBe(0);
   });
+
+  it("consolidateMemories below threshold", async () => {
+    const store = new MemoryStore(path.join(tmpDir, ".memory"));
+    store.writeMemoryFile("A", "user", "d a", "b a");
+    const extractor = new MemoryExtractor(store, new MockProvider([]));
+    expect(await extractor.consolidateMemories()).toBe(0);
+  });
+
+  it("consolidateMemories merges and replaces", async () => {
+    const store = new MemoryStore(path.join(tmpDir, ".memory"));
+    for (let i = 0; i < 10; i += 1) {
+      store.writeMemoryFile(`N${i}`, "user", `desc ${i}`, `body ${i}`);
+    }
+    const provider = new MockProvider([{
+      role: "assistant",
+      content: JSON.stringify([
+        { name: "Kept", type: "user", description: "kept desc", body: "kept body" },
+      ]),
+    }]);
+    const extractor = new MemoryExtractor(store, provider);
+    expect(await extractor.consolidateMemories()).toBe(1);
+    expect(store.listMemoryFiles().map((r) => r.filename)).toEqual(["kept.md"]);
+    expect(provider.requests[0]?.maxTokens).toBe(3000);
+  });
+
+  it("consolidateMemories rolls back on error", async () => {
+    const store = new MemoryStore(path.join(tmpDir, ".memory"));
+    for (let i = 0; i < 10; i += 1) {
+      store.writeMemoryFile(`N${i}`, "user", `desc ${i}`, `body ${i}`);
+    }
+    const original = store.memoryDocument.bind(store);
+    const provider = new MockProvider([{
+      role: "assistant",
+      content: JSON.stringify([
+        { name: "A", type: "user", description: "da", body: "ba" },
+        { name: "B", type: "user", description: "db", body: "bb" },
+      ]),
+    }]);
+    const extractor = new MemoryExtractor(store, provider);
+    store.memoryDocument = (name, memType, description, body) => {
+      if (name === "B") {
+        throw new Error("disk full");
+      }
+      return original(name, memType, description, body);
+    };
+    expect(await extractor.consolidateMemories()).toBe(0);
+    expect(store.listMemoryFiles()).toHaveLength(10);
+  });
 });
