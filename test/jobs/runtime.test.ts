@@ -1,11 +1,11 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ChatMessage } from "../../src/core/types.js";
 import { BackgroundManager } from "../../src/jobs/background.js";
 import { CronScheduler } from "../../src/jobs/cron.js";
-import { JobsRuntime } from "../../src/jobs/runtime.js";
+import { AgentLock, JobsRuntime } from "../../src/jobs/runtime.js";
 
 let tmpDir: string;
 
@@ -82,5 +82,60 @@ describe("JobsRuntime", () => {
     runtime.stop();
     runtime.stop(); // 幂等
     expect(runtime.started).toBe(false);
+  });
+
+  it("start schedules pollDue and stop clears the scheduler", () => {
+    vi.useFakeTimers();
+    try {
+      const runtime = makeRuntime();
+      const pollSpy = vi.spyOn(runtime.cron, "pollDue");
+      runtime.start();
+      vi.advanceTimersByTime(1000);
+      expect(pollSpy).toHaveBeenCalled();
+      runtime.stop();
+      const callsAfterStop = pollSpy.mock.calls.length;
+      vi.advanceTimersByTime(3000);
+      expect(pollSpy.mock.calls.length).toBe(callsAfterStop);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("AgentLock", () => {
+  it("tryAcquire succeeds when free and fails when held", () => {
+    const lock = new AgentLock();
+    expect(lock.tryAcquire()).toBe(true);
+    expect(lock.tryAcquire()).toBe(false);
+  });
+
+  it("acquire resolves immediately when free and then holds", async () => {
+    const lock = new AgentLock();
+    await expect(lock.acquire()).resolves.toBeUndefined();
+    expect(lock.tryAcquire()).toBe(false);
+  });
+
+  it("acquire queues waiters FIFO and release hands off", async () => {
+    const lock = new AgentLock();
+    const order: number[] = [];
+    lock.tryAcquire(); // 持锁
+    const first = lock.acquire().then(() => order.push(1));
+    const second = lock.acquire().then(() => order.push(2));
+    lock.release(); // 移交给 first
+    await first;
+    expect(order).toEqual([1]);
+    lock.release(); // 移交给 second
+    await second;
+    expect(order).toEqual([1, 2]);
+  });
+
+  it("withLock releases on throw", async () => {
+    const lock = new AgentLock();
+    await expect(
+      lock.withLock(async () => {
+        throw new Error("boom");
+      }),
+    ).rejects.toThrow("boom");
+    expect(lock.tryAcquire()).toBe(true);
   });
 });
