@@ -1,4 +1,3 @@
-// src/compaction/compactor.ts
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import * as path from "node:path";
