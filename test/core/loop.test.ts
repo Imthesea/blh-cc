@@ -477,4 +477,87 @@ describe("agentLoop jobs 集成", () => {
       userMessages.some((m) => (m.content ?? "").includes("<task_notification>")),
     ).toBe(true);
   });
+
+  it("runTurn 对空后台命令返回 error:", async () => {
+    const jobs = makeJobs();
+    const bashTool: ToolDefinition = {
+      name: "bash",
+      description: "",
+      parameters: {
+        type: "object",
+        properties: {
+          command: { type: "string" },
+          run_in_background: { type: "boolean" },
+        },
+        required: ["command"],
+      },
+      handler: async () => "SYNC",
+    };
+    const harness = makeHarness(
+      [
+        makeToolCallMessage("bash", { command: "", run_in_background: true }),
+        makeTextMessage("done"),
+      ],
+      { tools: [bashTool], jobs },
+    );
+    const messages = harness.newSession();
+    await harness.runTurn(messages, "go");
+    const toolResults = messages.filter((m) => m.role === "tool");
+    expect(toolResults[0]?.content).toContain("error: Bash command cannot be empty");
+  });
+});
+
+describe("runScheduledTurn", () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), "loop-scheduled-"));
+  });
+
+  afterEach(() => {
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  function makeJobs(): JobsRuntime {
+    return new JobsRuntime(
+      new BackgroundManager(tmpDir),
+      new CronScheduler(path.join(tmpDir, ".scheduled_tasks.json")),
+    );
+  }
+
+  it("no-ops when jobs is undefined", async () => {
+    const harness = makeHarness([makeTextMessage("done")]);
+    const messages = harness.newSession();
+    await harness.runScheduledTurn(messages);
+    expect(messages).toHaveLength(1);
+  });
+
+  it("consumes due cron, runs the loop, and acknowledges", async () => {
+    const jobs = makeJobs();
+    const job = jobs.cron.schedule("* * * * *", "run tests");
+    jobs.cron.pollDue(new Date(2026, 8, 14, 10, 30));
+    const harness = makeHarness([makeTextMessage("done")], { jobs });
+    const messages = harness.newSession();
+    await harness.runScheduledTurn(messages);
+    expect(
+      messages.some(
+        (m) => m.role === "user" && (m.content ?? "").includes("[Scheduled] run tests"),
+      ),
+    ).toBe(true);
+    expect(job.pending_delivery).toBe(false);
+  });
+
+  it("rolls back injected messages and restores the queue on error", async () => {
+    const jobs = makeJobs();
+    jobs.cron.schedule("* * * * *", "run tests");
+    jobs.cron.pollDue(new Date(2026, 8, 14, 10, 30));
+    const provider = new FlakyProvider([new Error("boom")]);
+    const harness = makeHarness([], { jobs, provider });
+    const messages = harness.newSession();
+    await expect(harness.runScheduledTurn(messages)).rejects.toThrow("boom");
+    expect(
+      messages.some((m) => (m.content ?? "").includes("[Scheduled]")),
+    ).toBe(false);
+    expect(jobs.cron.hasQueue()).toBe(true);
+  });
 });
