@@ -48,4 +48,14 @@ describe("buildHarness 装配", () => {
     expect(harness.memory).toBeDefined();
     expect(harness.memory?.store.directory).toBe(path.join(tmpDir, ".memory"));
   });
+
+  it("jobs 装配到 scheduled_tasks.json 与三个 cron 工具", async () => {
+    const { buildHarness } = await import("../../src/cli/main.js");
+    const harness = buildHarness(tmpDir);
+    expect(harness.jobs).toBeDefined();
+    const names = harness.tools.list().map((tool) => tool.name);
+    for (const name of ["schedule_cron", "list_crons", "cancel_cron"]) {
+      expect(names).toContain(name);
+    }
+  });
 });

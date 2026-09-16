@@ -19,6 +19,10 @@ import { TodoManager } from "../planning/todo.js";
 import { registerPlanningTools } from "../planning/tools.js";
 import { MemoryStore } from "../memory/store.js";
 import { Memory } from "../memory/system.js";
+import { BackgroundManager } from "../jobs/background.js";
+import { CronScheduler } from "../jobs/cron.js";
+import { JobsRuntime } from "../jobs/runtime.js";
+import { registerJobsTools } from "../jobs/tools.js";
 
 export function buildHarness(workdir?: string): Harness {
   const config = loadConfig(workdir);
@@ -44,13 +48,19 @@ export function buildHarness(workdir?: string): Harness {
   const taskStore = new TaskStore(path.join(config.workdir, ".tasks"));
   registerPlanningTools(tools, todoManager, taskStore);
   const memory = new Memory(new MemoryStore(path.join(config.workdir, ".memory")), provider);
+  const cron = new CronScheduler(path.join(config.workdir, ".scheduled_tasks.json"));
+  registerJobsTools(tools, cron);
+  const jobs = new JobsRuntime(
+    new BackgroundManager(config.workdir, config.bashTimeout, config.maxOutputChars),
+    cron,
+  );
   const compactor = new ContextCompactor({
     provider,
     transcriptDir: path.join(config.workdir, ".transcripts"),
     toolResultsDir: path.join(config.workdir, ".task_outputs", "tool-results"),
     notify: (message) => console.log(message),
   });
-  return new Harness(config, provider, tools, hooks, compactor, todoManager, memory);
+  return new Harness(config, provider, tools, hooks, compactor, todoManager, memory, jobs);
 }
 
 async function main(): Promise<void> {

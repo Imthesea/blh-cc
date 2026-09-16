@@ -7,3 +7,4 @@ dist/
 .task_outputs/
 .tasks/
 .memory/
+.scheduled_tasks.json
