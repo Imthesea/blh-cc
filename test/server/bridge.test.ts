@@ -43,4 +43,24 @@ describe("SSEBroadcaster", () => {
     const frames = write.mock.calls.map((c) => c[0] as string);
     expect(frames.filter((f) => f.includes("event: turn_end"))).toHaveLength(1);
   });
+
+  it("跳过已销毁的连接，不中断其它客户端广播", () => {
+    const broadcaster = new SSEBroadcaster();
+    const healthyWrite = vi.fn();
+    const healthy = { writeHead: vi.fn(), write: healthyWrite, end: vi.fn() } as unknown as ServerResponse;
+    const deadWrite = vi.fn();
+    const dead = { writeHead: vi.fn(), write: deadWrite, end: vi.fn(), destroyed: true } as unknown as ServerResponse;
+
+    broadcaster.subscribe(healthy);
+    broadcaster.subscribe(dead);
+    expect(broadcaster.clientCount).toBe(2);
+
+    healthyWrite.mockClear();
+    deadWrite.mockClear();
+    broadcaster.broadcast({ type: "turn_end" });
+
+    expect(healthyWrite).toHaveBeenCalled();
+    expect(deadWrite).not.toHaveBeenCalled();
+    expect(broadcaster.clientCount).toBe(1);
+  });
 });

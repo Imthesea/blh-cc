@@ -40,7 +40,17 @@ export class SSEBroadcaster {
 
   broadcast(event: WebEvent): void {
     const frame = serializeEvent(event);
-    for (const client of this.clients) client.write(frame);
+    for (const client of this.clients) {
+      if (client.destroyed || client.writableEnded) {
+        this.clients.delete(client);
+        continue;
+      }
+      try {
+        client.write(frame);
+      } catch {
+        this.clients.delete(client);
+      }
+    }
   }
 
   get clientCount(): number {
