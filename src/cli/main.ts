@@ -1,45 +1,19 @@
 #!/usr/bin/env node
+import { exec } from "node:child_process";
 import readline from "node:readline";
 import * as path from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
-import { loadConfig } from "../core/config.js";
-import { ContextCompactor } from "../compaction/compactor.js";
-import { registerCompactTool } from "../compaction/compactTool.js";
-import { Harness } from "../core/harness.js";
-import { HookBus, PRE_TOOL_USE } from "../core/hooks.js";
 import { lastAssistantText } from "../core/loop.js";
-import { OpenAIProvider } from "../providers/openai.js";
-import { ToolRegistry } from "../tools/registry.js";
-import { registerBuiltinTools } from "../tools/index.js";
-import { DEFAULT_RULES, SKIP_PERMISSIONS_RULES, insertUserRule, type PermissionRule } from "../security/rules.js";
-import { makePermissionHook, type ApprovalAsker, type ApprovalDecision } from "../security/approval.js";
 import { repl, makeReadlineIO } from "./repl.js";
 import type { ChatMessage } from "../core/types.js";
 import { SessionStore } from "../session/store.js";
-import { TaskStore } from "../planning/tasks.js";
-import { TodoManager } from "../planning/todo.js";
-import { registerPlanningTools } from "../planning/tools.js";
-import { MemoryStore } from "../memory/store.js";
-import { Memory } from "../memory/system.js";
-import { BackgroundManager } from "../jobs/background.js";
-import { CronScheduler } from "../jobs/cron.js";
-import { JobsRuntime } from "../jobs/runtime.js";
-import { registerJobsTools } from "../jobs/tools.js";
-import { MessageBus } from "../agents/bus.js";
-import { SubagentRunner } from "../agents/subagent.js";
-import { TeamRuntime } from "../agents/team.js";
-import { registerAgentTools } from "../agents/tools.js";
-import { SkillLoader } from "../extensions/skills.js";
-import { MCPRegistry } from "../extensions/mcp.js";
-import { registerExtensionTools } from "../extensions/tools.js";
-import { Extensions } from "../extensions/index.js";
-import { PromptGoalEvaluator } from "../goals/evaluator.js";
-import { GoalController } from "../goals/controller.js";
-import { OpenAIWorkflowRunner } from "../workflow/runtime.js";
-import { WORKFLOWS } from "../workflow/registry.js";
-import { registerWorkflowTools } from "../workflow/tools.js";
-import { createLogger, initLogger } from "../core/logger.js";
+import { createLogger } from "../core/logger.js";
+import type { ApprovalAsker, ApprovalDecision } from "../security/approval.js";
+import { startWebServer } from "../server/index.js";
+import { buildHarness } from "./harness.js";
+
+export { buildHarness };
 
 export const log = createLogger("cli");
 
@@ -50,6 +24,9 @@ export interface ParsedCliArgs {
   skipPermissions?: boolean;
   continue?: boolean;
   continueFile?: string;
+  web?: boolean;
+  port?: number;
+  dev?: boolean;
   cli: Record<string, string>;
 }
 
@@ -77,7 +54,7 @@ function parseContinue(argv: string[]): { continue?: boolean; continueFile?: str
 
 /** 解析命令行参数，拼成结构化结果：一次性 prompt、工作目录、模型等配置，以及是否跳过权限。 */
 export function parseCliArgs(argv: string[]): ParsedCliArgs {
-  const { values } = parseArgs({
+  const { values, positionals } = parseArgs({
     args: argv,
     options: {
       print: { type: "string", short: "p" },
@@ -87,6 +64,8 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
       "bash-timeout": { type: "string" },
       "max-output-chars": { type: "string" },
       "dangerously-skip-permissions": { type: "boolean" },
+      port: { type: "string" },
+      dev: { type: "boolean" },
     },
     strict: false,
   });
@@ -99,6 +78,12 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
   const prompt = stringValue(values, "print");
   const help = values.help === true;
   const skipPermissions = values["dangerously-skip-permissions"] === true;
+
+  const web = positionals[0] === "web";
+  const portValue = stringValue(values, "port");
+  const port =
+    portValue !== undefined && /^\d+$/.test(portValue) ? Number.parseInt(portValue, 10) : undefined;
+  const dev = values.dev === true;
 
   const cli: Record<string, string> = {};
   if (model !== undefined) cli.model = model;
@@ -113,6 +98,9 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
     ...(workdirValue !== undefined ? { workdir: workdirValue } : {}),
     ...(skipPermissions ? { skipPermissions } : {}),
     ...parseContinue(argv),
+    ...(web ? { web: true } : {}),
+    ...(port !== undefined ? { port } : {}),
+    ...(dev ? { dev: true } : {}),
     cli,
   };
 }
@@ -128,64 +116,14 @@ function makeAskUser(rl: readline.Interface): ApprovalAsker {
     });
 }
 
-/** 组装整个 Harness：加载配置、创建 provider、注册各种工具、团队、定时任务、目标等，全部串起来。 */
-export function buildHarness(
-  workdir?: string,
-  cli?: Record<string, unknown>,
-  askUser?: ApprovalAsker,
-  skipPermissions = false,
-  opts?: {
-    userRules?: PermissionRule[];
-    persistRule?: (rule: PermissionRule) => void;
-  },
-): Harness {
-  const config = loadConfig(workdir, cli);
-  initLogger(config.workdir);
-  const provider = new OpenAIProvider(config);
-  const tools = new ToolRegistry();
-  const hooks = new HookBus();
-  registerBuiltinTools(tools, config);
-  const base = skipPermissions ? SKIP_PERMISSIONS_RULES : DEFAULT_RULES;
-  const rules = [...base];
-  for (const r of opts?.userRules ?? []) insertUserRule(rules, r);
-  const permissionHook = makePermissionHook(rules, askUser, opts?.persistRule);
-  hooks.register(PRE_TOOL_USE, (payload) => permissionHook(payload.name, payload.input));
-  registerCompactTool(tools);
-  const todoManager = new TodoManager();
-  const taskStore = new TaskStore(path.join(config.workdir, ".tasks"));
-  registerPlanningTools(tools, todoManager, taskStore);
-  const memory = new Memory(new MemoryStore(path.join(config.workdir, ".memory")), provider);
-  const cron = new CronScheduler(path.join(config.workdir, ".scheduled_tasks.json"));
-  cron.load();
-  registerJobsTools(tools, cron);
-  const jobs = new JobsRuntime(
-    new BackgroundManager(config.workdir, config.bashTimeout, config.maxOutputChars),
-    cron,
-  );
-  const compactor = new ContextCompactor({
-    provider,
-    toolResultsDir: path.join(config.workdir, ".task_outputs", "tool-results"),
-  });
-  const agents = new TeamRuntime(
-    taskStore,
-    new MessageBus(path.join(config.workdir, ".mailboxes")),
-    jobs.agentLock,
-    config.workdir,
-    path.join(config.workdir, ".worktrees"),
-    provider,
-    config,
-    hooks,
-  );
-  const subagent = new SubagentRunner(provider, config, hooks);
-  registerAgentTools(tools, subagent, agents);
-  const skills = new SkillLoader(path.join(config.workdir, "skills"));
-  const mcp = new MCPRegistry(tools, config.workdir);
-  registerExtensionTools(tools, skills, mcp);
-  const extensions = new Extensions(skills, mcp);
-  const workflowStore = path.join(config.workdir, ".workflow_runtime");
-  registerWorkflowTools(tools, workflowStore, () => new OpenAIWorkflowRunner(provider), WORKFLOWS);
-  const goal = new GoalController(new PromptGoalEvaluator(provider));
-  return new Harness(config, provider, tools, hooks, compactor, todoManager, memory, jobs, agents, extensions, goal, workflowStore);
+function openBrowser(url: string): void {
+  const command =
+    process.platform === "win32"
+      ? `start "" "${url}"`
+      : process.platform === "darwin"
+        ? `open "${url}"`
+        : `xdg-open "${url}"`;
+  exec(command, () => {});
 }
 
 const USAGE = `用法: blh [-h] [-p 提示词] [--model 模型] [--base-url 基础地址]
@@ -205,14 +143,28 @@ const USAGE = `用法: blh [-h] [-p 提示词] [--model 模型] [--base-url 基�
   --dangerously-skip-permissions
                           允许所有 bash 命令，除了硬性禁止规则
   --continue [文件]       继续之前的会话（最近一次，或 .sessions/ 里的文件）
+  blh web [--port N] [--dev] [--workdir 目录]
+                          启动 web 交互式工作台（默认 http://127.0.0.1:8123）
   -h, --help              显示帮助信息并退出`;
 
 /** 程序入口：解析参数，要么一次性跑一个 prompt 打印回复，要么进入交互式 REPL。 */
 async function main(): Promise<void> {
-  const { prompt, workdir, cli, help, skipPermissions, continue: doContinue, continueFile } =
+  const { prompt, workdir, cli, help, skipPermissions, continue: doContinue, continueFile, web, port, dev } =
     parseCliArgs(process.argv.slice(2));
   if (help) {
     console.log(USAGE);
+    return;
+  }
+  if (web) {
+    const server = await startWebServer({
+      ...(workdir !== undefined ? { workdir } : {}),
+      cli,
+      ...(port !== undefined ? { port } : {}),
+      ...(dev !== undefined ? { dev } : {}),
+      ...(skipPermissions !== undefined ? { skipPermissions } : {}),
+    });
+    log.info("web 服务器已启动", { url: server.url });
+    openBrowser(server.url);
     return;
   }
   if (prompt !== undefined) {

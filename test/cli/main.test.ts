@@ -168,4 +168,20 @@ describe("parseCliArgs", () => {
     expect(parsed.continue).toBeUndefined();
     expect(parsed.continueFile).toBeUndefined();
   });
+
+  it("解析 web 子命令与 --port/--dev", async () => {
+    const { parseCliArgs } = await import("../../src/cli/main.js");
+    const parsed = parseCliArgs(["web", "--port", "9000", "--dev"]);
+    expect(parsed.web).toBe(true);
+    expect(parsed.port).toBe(9000);
+    expect(parsed.dev).toBe(true);
+  });
+
+  it("无 web 子命令时不带 web/port/dev 标记", async () => {
+    const { parseCliArgs } = await import("../../src/cli/main.js");
+    const parsed = parseCliArgs(["-p", "hi"]);
+    expect(parsed.web).toBeUndefined();
+    expect(parsed.port).toBeUndefined();
+    expect(parsed.dev).toBeUndefined();
+  });
 });
