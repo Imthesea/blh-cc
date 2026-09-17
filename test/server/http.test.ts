@@ -136,4 +136,26 @@ describe("http 路由", () => {
     const res = await fetch(`${url}/api/sessions/%2e%2e%2fetc%2fpasswd`);
     expect(res.status).toBe(400);
   });
+
+  it("POST /api/message 非法 JSON body 返回 400", async () => {
+    const { server, url } = await listen(makeContext(tmpDir));
+    servers.push(server);
+    const res = await fetch(`${url}/api/message`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{not json",
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("POST /api/session/resume 拒绝点号目录", async () => {
+    const { server, url } = await listen(makeContext(tmpDir));
+    servers.push(server);
+    const res = await fetch(`${url}/api/session/resume`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ file: ".." }),
+    });
+    expect(res.status).toBe(400);
+  });
 });

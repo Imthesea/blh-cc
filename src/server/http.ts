@@ -29,6 +29,15 @@ export interface WebContext {
   staticDir: string | null;
 }
 
+class HttpError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
 function json(res: ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, { "Content-Type": "application/json; charset=utf-8" });
   res.end(JSON.stringify(body));
@@ -47,7 +56,7 @@ function readBody(req: IncomingMessage): Promise<unknown> {
       try {
         resolve(JSON.parse(raw));
       } catch {
-        reject(new Error("invalid JSON body"));
+        reject(new HttpError(400, "invalid JSON body"));
       }
     });
     req.on("error", reject);
@@ -120,8 +129,14 @@ async function handleApi(
 
   const sessionMatch = /^\/api\/sessions\/(.+)$/.exec(pathname);
   if (method === "GET" && sessionMatch !== null) {
-    const file = decodeURIComponent(sessionMatch[1] ?? "");
-    if (path.basename(file) !== file) {
+    let file: string;
+    try {
+      file = decodeURIComponent(sessionMatch[1] ?? "");
+    } catch {
+      json(res, 400, { error: "invalid session file" });
+      return;
+    }
+    if (path.basename(file) !== file || file === "." || file === "..") {
       json(res, 400, { error: "invalid session file" });
       return;
     }
@@ -178,6 +193,10 @@ async function handleApi(
       json(res, 400, { error: "file is required" });
       return;
     }
+    if (path.basename(file) !== file || file === "." || file === "..") {
+      json(res, 400, { error: "invalid session file" });
+      return;
+    }
     const handle = ctx.session.resume(ctx.workdir, file);
     json(res, 200, { sessionId: handle.id });
     return;
@@ -208,7 +227,11 @@ export function createWebServer(ctx: WebContext): Server {
       }
       serveStatic(res, ctx.staticDir, pathname);
     })().catch((error: unknown) => {
-      json(res, 500, { error: error instanceof Error ? error.message : String(error) });
+      if (error instanceof HttpError) {
+        json(res, error.status, { error: error.message });
+        return;
+      }
+      json(res, 500, { error: "internal error" });
     });
   });
 }
