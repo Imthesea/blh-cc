@@ -12,8 +12,8 @@ import { lastAssistantText } from "../core/loop.js";
 import { OpenAIProvider } from "../providers/openai.js";
 import { ToolRegistry } from "../tools/registry.js";
 import { registerBuiltinTools } from "../tools/index.js";
-import { DEFAULT_RULES, SKIP_PERMISSIONS_RULES } from "../security/rules.js";
-import { makePermissionHook } from "../security/approval.js";
+import { DEFAULT_RULES, SKIP_PERMISSIONS_RULES, insertUserRule, type PermissionRule } from "../security/rules.js";
+import { makePermissionHook, type ApprovalAsker, type ApprovalDecision } from "../security/approval.js";
 import { repl, makeReadlineIO } from "./repl.js";
 import type { ChatMessage } from "../core/types.js";
 import { SessionStore } from "../session/store.js";
@@ -118,11 +118,12 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
 }
 
 /** 造一个"问用户"的函数：弹出问题，等用户在终端里输入答案。 */
-function makeAskUser(rl: readline.Interface): (prompt: string) => Promise<string> {
-  return (prompt) =>
-    new Promise<string>((resolve) => {
-      rl.question(prompt, (answer) => {
-        resolve(answer);
+function makeAskUser(rl: readline.Interface): ApprovalAsker {
+  return (req) =>
+    new Promise<ApprovalDecision>((resolve) => {
+      rl.question(`allow ${req.tool}(${req.target})? [y/N] `, (answer) => {
+        const a = answer.trim().toLowerCase();
+        resolve(a === "y" || a === "yes" ? "allow" : "deny");
       });
     });
 }
@@ -131,8 +132,12 @@ function makeAskUser(rl: readline.Interface): (prompt: string) => Promise<string
 export function buildHarness(
   workdir?: string,
   cli?: Record<string, unknown>,
-  askUser?: (prompt: string) => Promise<string>,
+  askUser?: ApprovalAsker,
   skipPermissions = false,
+  opts?: {
+    userRules?: PermissionRule[];
+    persistRule?: (rule: PermissionRule) => void;
+  },
 ): Harness {
   const config = loadConfig(workdir, cli);
   initLogger(config.workdir);
@@ -140,8 +145,10 @@ export function buildHarness(
   const tools = new ToolRegistry();
   const hooks = new HookBus();
   registerBuiltinTools(tools, config);
-  const rules = skipPermissions ? SKIP_PERMISSIONS_RULES : DEFAULT_RULES;
-  const permissionHook = makePermissionHook(rules, askUser);
+  const base = skipPermissions ? SKIP_PERMISSIONS_RULES : DEFAULT_RULES;
+  const rules = [...base];
+  for (const r of opts?.userRules ?? []) insertUserRule(rules, r);
+  const permissionHook = makePermissionHook(rules, askUser, opts?.persistRule);
   hooks.register(PRE_TOOL_USE, (payload) => permissionHook(payload.name, payload.input));
   registerCompactTool(tools);
   const todoManager = new TodoManager();

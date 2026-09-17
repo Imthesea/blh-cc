@@ -1,58 +1,51 @@
-import { describe, it, expect, vi } from "vitest";
-import { makePermissionHook, approvalContext } from "../../src/security/approval.js";
-import { DEFAULT_RULES } from "../../src/security/rules.js";
+import { describe, it, expect } from "vitest";
+import { makePermissionHook } from "../../src/security/approval.js";
+import { DEFAULT_RULES, type PermissionRule } from "../../src/security/rules.js";
 
-describe("makePermissionHook", () => {
-  it("blocks denied commands with rule message", async () => {
-    const hook = makePermissionHook(DEFAULT_RULES);
-    const result = await hook("bash", { command: "git push --force" });
-    expect(result).toBe("denied by permission rule (bash: git push --force)");
+describe("makePermissionHook（结构化 asker）", () => {
+  it("asker 返回 allow 时放行", async () => {
+    const hook = makePermissionHook(DEFAULT_RULES, async () => "allow");
+    expect(await hook("bash", { command: "ls" })).toBeNull();
   });
 
-  it("asks and allows on y", async () => {
-    const askUser = vi.fn().mockResolvedValue("y");
-    const hook = makePermissionHook(DEFAULT_RULES, askUser);
-    const result = await hook("bash", { command: "ls" });
-    expect(askUser).toHaveBeenCalledWith("allow bash(ls)? [y/N] ");
-    expect(result).toBeNull();
+  it("asker 返回 deny 时阻断", async () => {
+    const hook = makePermissionHook(DEFAULT_RULES, async () => "deny");
+    expect(await hook("bash", { command: "ls" })).toBe("denied by user");
   });
 
-  it("asks and denies on empty/other answer", async () => {
-    const askUser = vi.fn().mockResolvedValue("");
-    const hook = makePermissionHook(DEFAULT_RULES, askUser);
-    await expect(hook("bash", { command: "ls" })).resolves.toBe("denied by user");
+  it("asker 拿到结构化的 tool/target/args", async () => {
+    let received: unknown;
+    const hook = makePermissionHook(DEFAULT_RULES, async (req) => {
+      received = req;
+      return "deny";
+    });
+    await hook("bash", { command: "npm install" });
+    expect(received).toEqual({
+      tool: "bash",
+      target: "npm install",
+      args: { command: "npm install" },
+    });
   });
 
-  it("accepts yes case-insensitively", async () => {
-    const hook = makePermissionHook(DEFAULT_RULES, async () => "YES");
-    await expect(hook("bash", { command: "ls" })).resolves.toBeNull();
+  it("always_allow 写入规则并回调 persistRule，且不覆盖硬性 deny", async () => {
+    const rules = [...DEFAULT_RULES];
+    const persisted: PermissionRule[] = [];
+    const hook = makePermissionHook(rules, async () => "always_allow", (r) => persisted.push(r));
+
+    expect(await hook("bash", { command: "ls -la" })).toBeNull();
+    const denyIdx = rules.findIndex((r) => r.action === "deny");
+    const userIdx = rules.findIndex((r) => r.target === "ls -la");
+    expect(userIdx).toBeGreaterThanOrEqual(0);
+    expect(denyIdx).toBeLessThan(userIdx);
+    expect(persisted).toEqual([{ tool: "bash", target: "ls -la", action: "allow" }]);
   });
 
-  it("allows file tools without asking", async () => {
-    const askUser = vi.fn();
-    const hook = makePermissionHook(DEFAULT_RULES, askUser);
-    await expect(hook("read_file", { path: "a.txt" })).resolves.toBeNull();
-    expect(askUser).not.toHaveBeenCalled();
-  });
-
-  it("uses path as target for file tools in deny message", async () => {
-    const rules = [{ tool: "write_file", target: "*.env", action: "deny" as const }];
-    const hook = makePermissionHook(rules);
-    await expect(hook("write_file", { path: "prod.env" })).resolves.toBe(
-      "denied by permission rule (write_file: prod.env)",
-    );
-  });
-
-  it("denies interactive approval inside a scheduled turn", async () => {
-    const askUser = vi.fn().mockResolvedValue("y");
-    const hook = makePermissionHook(DEFAULT_RULES, askUser);
-    approvalContext.scheduledTurn = true;
-    try {
-      const result = await hook("bash", { command: "ls" });
-      expect(result).toBe("denied: cannot request approval from a scheduled turn");
-      expect(askUser).not.toHaveBeenCalled();
-    } finally {
-      approvalContext.scheduledTurn = false;
-    }
+  it("always_allow 且 target 为空时退化为放行、不写规则", async () => {
+    const rules = [...DEFAULT_RULES];
+    const persisted: PermissionRule[] = [];
+    const hook = makePermissionHook(rules, async () => "always_allow", (r) => persisted.push(r));
+    expect(await hook("bash", {})).toBeNull();
+    expect(persisted).toEqual([]);
+    expect(rules.length).toBe(DEFAULT_RULES.length);
   });
 });

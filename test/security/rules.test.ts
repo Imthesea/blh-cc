@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { matchRule, DEFAULT_RULES, SKIP_PERMISSIONS_RULES } from "../../src/security/rules.js";
+import { insertUserRule, matchRule, DEFAULT_RULES, SKIP_PERMISSIONS_RULES } from "../../src/security/rules.js";
 
 describe("DEFAULT_RULES", () => {
   it("has exactly 6 rules", () => {
@@ -55,5 +55,18 @@ describe("SKIP_PERMISSIONS_RULES", () => {
     expect(matchRule(SKIP_PERMISSIONS_RULES, "read_file", "x.ts")).toBe("allow");
     expect(matchRule(SKIP_PERMISSIONS_RULES, "mcp__docs__search", "")).toBe("ask");
     expect(matchRule(SKIP_PERMISSIONS_RULES, "connect_mcp", "")).toBe("ask");
+  });
+});
+
+describe("insertUserRule", () => {
+  it("插入到硬性 deny 之后、默认 ask 之前", () => {
+    const rules = [...DEFAULT_RULES];
+    insertUserRule(rules, { tool: "bash", target: "ls -la", action: "allow" });
+    const denyIdx = rules.findIndex((r) => r.action === "deny");
+    const askIdx = rules.findIndex((r) => r.action === "ask");
+    const userIdx = rules.findIndex((r) => r.target === "ls -la");
+    expect(denyIdx).toBeGreaterThanOrEqual(0);
+    expect(userIdx).toBeGreaterThan(denyIdx);
+    expect(userIdx).toBeLessThan(askIdx);
   });
 });

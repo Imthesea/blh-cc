@@ -37,7 +37,9 @@ function buildHarness(
   const tools = new ToolRegistry();
   registerBuiltinTools(tools, config);
   const hooks = new HookBus();
-  const permissionHook = makePermissionHook(DEFAULT_RULES, async () => askAnswer);
+  const permissionHook = makePermissionHook(DEFAULT_RULES, async () =>
+    askAnswer === "y" ? "allow" : "deny",
+  );
   hooks.register(PRE_TOOL_USE, (payload) => permissionHook(payload.name, payload.input));
   return new Harness(config, new MockProvider(script), tools, hooks);
 }

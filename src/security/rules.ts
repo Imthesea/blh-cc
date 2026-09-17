@@ -33,3 +33,9 @@ export function matchRule(
   }
   return "ask";
 }
+
+/** 把用户规则插到硬性 deny 之后、默认 ask/allow 之前。 */
+export function insertUserRule(rules: PermissionRule[], rule: PermissionRule): void {
+  const idx = rules.findIndex((r) => r.action !== "deny");
+  rules.splice(idx === -1 ? rules.length : idx, 0, rule);
+}

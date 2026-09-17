@@ -6,7 +6,7 @@ import { Harness } from "../../src/core/harness.js";
 import { HookBus, PRE_TOOL_USE } from "../../src/core/hooks.js";
 import { ToolRegistry } from "../../src/tools/registry.js";
 import { registerBuiltinTools } from "../../src/tools/index.js";
-import { makePermissionHook } from "../../src/security/approval.js";
+import { makePermissionHook, type ApprovalAsker, type ApprovalDecision } from "../../src/security/approval.js";
 import { DEFAULT_RULES } from "../../src/security/rules.js";
 import {
   MockProvider,
@@ -23,10 +23,13 @@ const config: Config = {
   maxOutputChars: 30000,
 };
 
-function askUser(rl: readline.Interface): (prompt: string) => Promise<string> {
-  return (prompt) =>
-    new Promise<string>((resolve) => {
-      rl.question(prompt, (answer) => resolve(answer));
+function askUser(rl: readline.Interface): ApprovalAsker {
+  return (req) =>
+    new Promise<ApprovalDecision>((resolve) => {
+      rl.question(`allow ${req.tool}(${req.target})? [y/N] `, (answer) => {
+        const a = answer.trim().toLowerCase();
+        resolve(a === "y" || a === "yes" ? "allow" : "deny");
+      });
     });
 }
 
