@@ -39,23 +39,42 @@ export function makeReadlineIO(rl?: readline.Interface): ReplIO {
       input: process.stdin,
       output: process.stdout,
     });
+  let awaitingInput = false;
   return {
     readLine: () =>
       new Promise((resolve) => {
-        const onClose = () => resolve(null);
+        const onClose = () => {
+          awaitingInput = false;
+          resolve(null);
+        };
         readlineInterface.once("close", onClose);
+        awaitingInput = true;
         readlineInterface.question("> ", (answer) => {
+          awaitingInput = false;
           readlineInterface.removeListener("close", onClose);
           resolve(answer);
         });
       }),
-    print: (text) => console.log(text),
+    print: (text) => {
+      if (awaitingInput) {
+        readline.clearLine(process.stdout, 0);
+        readline.cursorTo(process.stdout, 0);
+        process.stdout.write(`${text}\n`);
+        readlineInterface.prompt(true);
+      } else {
+        console.log(text);
+      }
+    },
   };
 }
 
-export async function repl(agent: TurnRunner, io: ReplIO): Promise<void> {
+export async function repl(
+  agent: TurnRunner,
+  io: ReplIO,
+  initialMessages?: ChatMessage[],
+): Promise<void> {
   io.print("blh — type 'exit' to quit");
-  const messages = agent.newSession();
+  const messages = initialMessages ?? agent.newSession();
   const jobs = agent.jobs;
   const runScheduledTurn = agent.runScheduledTurn?.bind(agent);
   const agents = agent.agents;
