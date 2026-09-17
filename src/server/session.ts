@@ -50,6 +50,9 @@ export class SessionManager {
   }
 
   resume(workdir: string, file: string): SessionHandle {
+    if (path.basename(file) !== file) {
+      throw new Error(`invalid session file: ${file}`);
+    }
     const fullPath = path.join(SessionStore.sessionsDir(workdir), file);
     const store = SessionStore.open(fullPath);
     this.runner.sessionStore = store;

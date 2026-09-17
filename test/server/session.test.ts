@@ -61,6 +61,11 @@ describe("SessionManager", () => {
     expect(runner.sessionStore?.path).toBe(store.path);
   });
 
+  it("resume 拒绝路径穿越", () => {
+    const manager = new SessionManager(fakeRunner(), fakeLock(), () => {}, new ApprovalCoordinator(() => {}));
+    expect(() => manager.resume(tmpDir, "../etc/passwd")).toThrow("invalid session file");
+  });
+
   it("approve 应答待审批请求", async () => {
     const events: WebEvent[] = [];
     const approvals = new ApprovalCoordinator((e) => events.push(e));
