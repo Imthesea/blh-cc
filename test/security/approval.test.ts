@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
-import { makePermissionHook } from "../../src/security/approval.js";
+import { describe, it, expect, vi } from "vitest";
+import { makePermissionHook, approvalContext } from "../../src/security/approval.js";
 import { DEFAULT_RULES, type PermissionRule } from "../../src/security/rules.js";
 
 describe("makePermissionHook（结构化 asker）", () => {
@@ -47,5 +47,30 @@ describe("makePermissionHook（结构化 asker）", () => {
     expect(await hook("bash", {})).toBeNull();
     expect(persisted).toEqual([]);
     expect(rules.length).toBe(DEFAULT_RULES.length);
+  });
+
+  it("scheduled turn 内拒绝交互审批且不调用 asker", async () => {
+    const ask = vi.fn().mockResolvedValue("allow");
+    const hook = makePermissionHook(DEFAULT_RULES, ask);
+    approvalContext.scheduledTurn = true;
+    try {
+      await expect(hook("bash", { command: "ls" })).resolves.toBe(
+        "denied: cannot request approval from a scheduled turn",
+      );
+      expect(ask).not.toHaveBeenCalled();
+    } finally {
+      approvalContext.scheduledTurn = false;
+    }
+  });
+
+  it("文件工具用 path 作为 target 参与规则匹配", async () => {
+    const rules: PermissionRule[] = [
+      { tool: "write_file", target: "*.env", action: "deny" },
+      { tool: "*", target: "*", action: "allow" },
+    ];
+    const hook = makePermissionHook(rules, async () => "allow");
+    expect(await hook("write_file", { path: "prod.env" })).toBe(
+      "denied by permission rule (write_file: prod.env)",
+    );
   });
 });
