@@ -53,4 +53,17 @@ export interface Config {
 
 export interface ChatProvider {
   chat(messages: ChatMessage[], tools: ToolDefinition[], maxTokens?: number): Promise<ChatMessage>;
+  stream?(messages: ChatMessage[], tools: ToolDefinition[], maxTokens?: number): AsyncIterable<ProviderStreamEvent>;
 }
+
+/** 一次 LLM 调用的 token 用量 */
+export interface ChatUsage {
+  promptTokens: number;
+  completionTokens: number;
+}
+
+/** Provider 底层流事件：text/tool_call 是增量，done 是拼好的完整消息 */
+export type ProviderStreamEvent =
+  | { type: "text_delta"; text: string }
+  | { type: "tool_call_delta"; index: number; id?: string; name?: string; arguments?: string }
+  | { type: "done"; message: ChatMessage; usage?: ChatUsage };

@@ -3,6 +3,7 @@ import { repl } from "../../src/cli/repl.js";
 import type { TurnRunner } from "../../src/cli/repl.js";
 import { makeTextMessage, MockProvider } from "../integration/helpers.js";
 import type { ChatMessage, Config } from "../../src/core/types.js";
+import { EventBus } from "../../src/core/events.js";
 import { Harness } from "../../src/core/harness.js";
 import { HookBus } from "../../src/core/hooks.js";
 import { ToolRegistry } from "../../src/tools/registry.js";
@@ -56,6 +57,7 @@ async function runRepl(lines: string[], runner: TurnRunner) {
     print: (text: string) => {
       printed.push(text);
     },
+    write: () => {},
   });
   return printed;
 }
@@ -175,5 +177,41 @@ describe("repl", () => {
     const printed = await runRepl(["hello", "exit"], runner);
     expect(printed).toContain("Error: 402 Insufficient Balance");
     expect(runner.runTurn).toHaveBeenCalledTimes(1);
+  });
+
+  it("streams text deltas and tool progress without double-printing", async () => {
+    const runner: TurnRunner = {
+      newSession: () => [],
+      runTurn: vi.fn(async (messages: ChatMessage[], _text: string, events?: EventBus) => {
+        await events?.emit({ type: "turn_start" });
+        await events?.emit({ type: "assistant_text_delta", text: "Hel" });
+        await events?.emit({ type: "assistant_text_delta", text: "lo" });
+        await events?.emit({ type: "tool_call", id: "c1", name: "echo", arguments: "{}" });
+        await events?.emit({ type: "tool_result", id: "c1", name: "echo", output: "ok", isError: false });
+        await events?.emit({ type: "turn_end" });
+        messages.push(makeTextMessage("Hello"));
+      }),
+    };
+    const printed: string[] = [];
+    const writes: string[] = [];
+    const input = (async function* () {
+      yield "hello";
+    })();
+    await repl(runner, {
+      readLine: async () => {
+        const next = await input.next();
+        return next.done ? null : next.value;
+      },
+      print: (text: string) => {
+        printed.push(text);
+      },
+      write: (text: string) => {
+        writes.push(text);
+      },
+    });
+    expect(writes.join("")).toBe("Hello\n");
+    expect(printed).toContain("[tool] echo {}");
+    expect(printed).toContain("[ok] echo");
+    expect(printed).not.toContain("Hello");
   });
 });

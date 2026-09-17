@@ -1,6 +1,6 @@
 import { PassThrough } from "node:stream";
 import readline from "node:readline";
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { repl, makeReadlineIO } from "../../src/cli/repl.js";
 import { Harness } from "../../src/core/harness.js";
 import { HookBus, PRE_TOOL_USE } from "../../src/core/hooks.js";
@@ -67,6 +67,7 @@ describe("repl readline 复用", () => {
       print: (text: string) => {
         printed.push(text);
       },
+      write: () => {},
     });
 
     // 收集 readline 写出的提示,按提示逐步喂入(模拟真实用户在提示后输入)
@@ -89,5 +90,22 @@ describe("repl readline 复用", () => {
     rl.close();
 
     expect(printed).toContain("done");
+  });
+});
+
+describe("makeReadlineIO.write", () => {
+  it("原始输出不带换行", () => {
+    const write = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    try {
+      const stdin = new PassThrough();
+      const stdout = new PassThrough();
+      const rl = readline.createInterface({ input: stdin, output: stdout });
+      const io = makeReadlineIO(rl);
+      io.write("hel");
+      expect(write).toHaveBeenCalledWith("hel");
+      rl.close();
+    } finally {
+      write.mockRestore();
+    }
   });
 });

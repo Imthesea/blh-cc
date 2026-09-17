@@ -1,5 +1,6 @@
-import type { ChatMessage, ToolCall } from "./types.js";
+import type { ChatMessage, ChatProvider, ToolCall, ToolDefinition } from "./types.js";
 import type { Harness } from "./harness.js";
+import type { EventBus } from "./events.js";
 import { PRE_TOOL_USE, POST_TOOL_USE } from "./hooks.js";
 import { isPromptTooLong } from "../providers/openai.js";
 import type { GoalController } from "../goals/controller.js";
@@ -44,10 +45,12 @@ export async function agentLoop(
   harness: Harness,
   messages: ChatMessage[],
   activeRequest = "",
+  events?: EventBus,
 ): Promise<void> {
   const systemMessage: ChatMessage =
     messages[0] ?? { role: "system", content: harness.systemPrompt };
   let reactiveRetries = 0;
+  await events?.emit({ type: "turn_start" });
   for (;;) {
     log.debug("turn start", { messages: messages.length });
     const compactor = harness.compactor;
@@ -60,8 +63,20 @@ export async function agentLoop(
       harness.jobs.injectBackgroundResults(messages);
     }
     let message: ChatMessage;
+    const streamAvailable = events !== undefined && harness.provider.stream !== undefined;
     try {
-      message = await harness.provider.chat(messages, harness.tools.list());
+      if (streamAvailable) {
+        try {
+          message = await streamAssistantMessage(harness.provider, messages, harness.tools.list(), events);
+        } catch (error) {
+          log.warn("stream failed, falling back to non-streaming", {
+            error: error instanceof Error ? error.message : String(error),
+          });
+          message = await harness.provider.chat(messages, harness.tools.list());
+        }
+      } else {
+        message = await harness.provider.chat(messages, harness.tools.list());
+      }
       reactiveRetries = 0;
     } catch (error) {
       if (compactor && isPromptTooLong(error) && reactiveRetries < MAX_REACTIVE_RETRIES) {
@@ -84,6 +99,7 @@ export async function agentLoop(
         harness.sessionStore?.append(reminder);
         continue;
       }
+      await events?.emit({ type: "turn_end" });
       return;
     }
 
@@ -93,6 +109,7 @@ export async function agentLoop(
       const name = call.function.name;
       log.info("tool call", { tool: name });
       const input = parseToolArguments(call.function.arguments);
+      await events?.emit({ type: "tool_call", id: call.id, name, arguments: call.function.arguments });
       let result: string;
       if (compactor && name === "compact") {
         // compact 由 loop 拦截：先闭合本批次，再压缩，不走 dispatch/hooks
@@ -124,6 +141,7 @@ export async function agentLoop(
         }
         if (name === "todo_write") usedTodo = true;
       }
+      await events?.emit({ type: "tool_result", id: call.id, name, output: result, isError: result.startsWith("error:") });
       const toolMessage: ChatMessage = { role: "tool", tool_call_id: call.id, content: result };
       messages.push(toolMessage);
       harness.sessionStore?.append(toolMessage);
@@ -167,4 +185,22 @@ function goalReminder(goal: GoalController | undefined, decision: StopDecision):
     `Evaluator: ${decision.reason}\n` +
     "Continue working and surface the missing evidence."
   );
+}
+
+/** 消费 Provider 底层流，转发文本增量，返回拼好的最终消息。 */
+async function streamAssistantMessage(
+  provider: ChatProvider,
+  messages: ChatMessage[],
+  tools: ToolDefinition[],
+  events: EventBus,
+): Promise<ChatMessage> {
+  const stream = provider.stream!(messages, tools);
+  for await (const event of stream) {
+    if (event.type === "text_delta") {
+      await events.emit({ type: "assistant_text_delta", text: event.text });
+    } else if (event.type === "done") {
+      return event.message;
+    }
+  }
+  throw new Error("provider stream ended without a done event");
 }

@@ -2,7 +2,9 @@ import OpenAI from "openai";
 import type {
   ChatMessage,
   ChatProvider,
+  ChatUsage,
   Config,
+  ProviderStreamEvent,
   ToolCall,
   ToolDefinition,
 } from "../core/types.js";
@@ -19,6 +21,10 @@ export interface ChatCompletionsClient {
         params: OpenAI.ChatCompletionCreateParamsNonStreaming,
         options?: { timeout?: number },
       ): Promise<OpenAI.ChatCompletion>;
+      create(
+        params: OpenAI.ChatCompletionCreateParamsStreaming,
+        options?: { timeout?: number },
+      ): Promise<AsyncIterable<OpenAI.ChatCompletionChunk>>;
     };
   };
 }
@@ -132,11 +138,82 @@ export class OpenAIProvider implements ChatProvider {
       },
     };
   }
-}
 
-export interface ChatUsage {
-  promptTokens: number;
-  completionTokens: number;
+  async *stream(
+    messages: ChatMessage[],
+    tools: ToolDefinition[],
+    maxTokens?: number,
+  ): AsyncIterable<ProviderStreamEvent> {
+    log.debug("stream request", { model: this.config.model, messages: messages.length, tools: tools.length });
+    const stream = await withRetry(() =>
+      this.client.chat.completions.create(
+        {
+          model: this.config.model,
+          messages: messages.map(toOpenAIMessage),
+          stream: true,
+          stream_options: { include_usage: true },
+          ...(tools.length
+            ? {
+                tools: tools.map((tool) => ({
+                  type: "function" as const,
+                  function: {
+                    name: tool.name,
+                    description: tool.description,
+                    parameters: tool.parameters,
+                  },
+                })),
+              }
+            : {}),
+          ...(maxTokens !== undefined ? { max_tokens: maxTokens } : {}),
+        },
+        { timeout: 600_000 },
+      ),
+    );
+
+    let text = "";
+    const calls = new Map<number, { id: string; name: string; arguments: string }>();
+    let usage: ChatUsage | undefined;
+
+    for await (const chunk of stream) {
+      const delta = chunk.choices[0]?.delta;
+      if (delta?.content) {
+        text += delta.content;
+        yield { type: "text_delta", text: delta.content };
+      }
+      for (const tc of delta?.tool_calls ?? []) {
+        const acc = calls.get(tc.index) ?? { id: "", name: "", arguments: "" };
+        if (tc.id) acc.id = tc.id;
+        if (tc.function?.name) acc.name += tc.function.name;
+        if (tc.function?.arguments) acc.arguments += tc.function.arguments;
+        calls.set(tc.index, acc);
+        yield {
+          type: "tool_call_delta",
+          index: tc.index,
+          ...(tc.id ? { id: tc.id } : {}),
+          ...(tc.function?.name ? { name: tc.function.name } : {}),
+          ...(tc.function?.arguments ? { arguments: tc.function.arguments } : {}),
+        };
+      }
+      if (chunk.usage) {
+        usage = {
+          promptTokens: chunk.usage.prompt_tokens,
+          completionTokens: chunk.usage.completion_tokens,
+        };
+      }
+    }
+
+    const toolCalls: ToolCall[] = [...calls.values()].map((c) => ({
+      id: c.id,
+      type: "function",
+      function: { name: c.name, arguments: c.arguments },
+    }));
+    const message: ChatMessage = {
+      role: "assistant",
+      content: text || null,
+      ...(toolCalls.length ? { tool_calls: toolCalls } : {}),
+    };
+    yield { type: "done", message, ...(usage ? { usage } : {}) };
+  }
 }
 
 const PROMPT_TOO_LONG_KEYWORDS = [

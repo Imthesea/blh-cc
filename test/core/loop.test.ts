@@ -9,7 +9,9 @@ import { ToolRegistry } from "../../src/tools/registry.js";
 import { HookBus, PRE_TOOL_USE } from "../../src/core/hooks.js";
 import { ContextCompactor } from "../../src/compaction/compactor.js";
 import { MockProvider, makeToolCallMessage, makeTextMessage } from "../integration/helpers.js";
-import type { ChatMessage, ChatProvider, Config, ToolDefinition } from "../../src/core/types.js";
+import type { ChatMessage, ChatProvider, Config, ProviderStreamEvent, ToolDefinition } from "../../src/core/types.js";
+import { EventBus } from "../../src/core/events.js";
+import type { AgentEvent } from "../../src/core/events.js";
 import { TodoManager } from "../../src/planning/todo.js";
 import { MemoryStore } from "../../src/memory/store.js";
 import { Memory } from "../../src/memory/system.js";
@@ -244,7 +246,7 @@ describe("agentLoop 压缩集成", () => {
     expect(provider.calls).toBe(3);
     expect(lastAssistantText(messages)).toBe("recovered");
     expect(messages[0]?.role).toBe("system");
-    expect(messages[1]?.content?.startsWith("[Reactive compact]")).toBe(true);
+    expect(messages[1]?.content?.startsWith("[响应式压缩]")).toBe(true);
   });
 
   it("重试耗尽后原样抛出", async () => {
@@ -280,7 +282,7 @@ describe("agentLoop 压缩集成", () => {
     const messages = harness.newSession();
     await harness.runTurn(messages, "a".repeat(1000));
     expect(messages[0]?.role).toBe("system");
-    expect(messages[1]?.content?.startsWith("[Compacted]")).toBe(true);
+    expect(messages[1]?.content?.startsWith("[已压缩]")).toBe(true);
   });
 
   it("compact 工具在批次闭合后压缩", async () => {
@@ -321,9 +323,9 @@ describe("agentLoop 压缩集成", () => {
     expect(sideEffects).toEqual(["hello"]);
     expect(messages).toHaveLength(3); // system + [Compacted] 摘要 + 最终答复
     expect(messages[0]?.role).toBe("system");
-    expect(messages[1]?.content?.startsWith("[Compacted]")).toBe(true);
+    expect(messages[1]?.content?.startsWith("[已压缩]")).toBe(true);
     expect(messages[1]?.content).toContain(
-      "Current user request:\nnote then compact",
+      "当前用户请求：\nnote then compact",
     );
     expect(messages[1]?.content).toContain("conversation summary");
     expect(messages[1]?.content).not.toContain("Full transcript:");
@@ -332,7 +334,7 @@ describe("agentLoop 压缩集成", () => {
 
   it("systemPrompt 包含压缩消息防护指引", () => {
     const harness = makeHarness([]);
-    expect(harness.systemPrompt).toContain("Conversation summary");
+    expect(harness.systemPrompt).toContain("对话摘要");
   });
 
   it("runTurn 把 user/assistant/tool 追加到 sessionStore", async () => {
@@ -687,5 +689,118 @@ describe("runScheduledTurn", () => {
       messages.some((m) => (m.content ?? "").includes("[Scheduled]")),
     ).toBe(false);
     expect(jobs.cron.hasQueue()).toBe(true);
+  });
+});
+
+class StreamingProvider implements ChatProvider {
+  constructor(private readonly script: ChatMessage[]) {}
+
+  async chat(): Promise<ChatMessage> {
+    throw new Error("StreamingProvider.chat unused");
+  }
+
+  async *stream(_messages: ChatMessage[], _tools: ToolDefinition[]): AsyncIterable<ProviderStreamEvent> {
+    const message = this.script.shift();
+    if (!message) throw new Error("StreamingProvider: script exhausted");
+    if (message.content) yield { type: "text_delta", text: message.content };
+    yield { type: "done", message };
+  }
+}
+
+class FailingStreamProvider implements ChatProvider {
+  constructor(private readonly script: ChatMessage[]) {}
+
+  async chat(): Promise<ChatMessage> {
+    const next = this.script.shift();
+    if (!next) throw new Error("FailingStreamProvider: script exhausted");
+    return next;
+  }
+
+  async *stream(): AsyncIterable<ProviderStreamEvent> {
+    throw new Error("stream unsupported");
+  }
+}
+
+describe("agentLoop streaming events", () => {
+  it("emits turn/tool/text events in order via EventBus", async () => {
+    const provider = new StreamingProvider([
+      makeToolCallMessage("echo", { text: "hi" }),
+      makeTextMessage("done"),
+    ]);
+    const harness = makeHarness([], { provider });
+    const events: AgentEvent[] = [];
+    const bus = new EventBus();
+    bus.subscribe((e) => {
+      events.push(e);
+    });
+    const messages = harness.newSession();
+    await harness.runTurn(messages, "go", bus);
+    expect(events.map((e) => e.type)).toEqual([
+      "turn_start",
+      "tool_call",
+      "tool_result",
+      "assistant_text_delta",
+      "turn_end",
+    ]);
+    const toolCall = events.find((e) => e.type === "tool_call");
+    expect(toolCall).toEqual({
+      type: "tool_call",
+      id: "call_1",
+      name: "echo",
+      arguments: '{"text":"hi"}',
+    });
+    const toolResult = events.find((e) => e.type === "tool_result");
+    expect(toolResult).toEqual({
+      type: "tool_result",
+      id: "call_1",
+      name: "echo",
+      output: "echoed:hi",
+      isError: false,
+    });
+    expect(lastAssistantText(messages)).toBe("done");
+  });
+
+  it("falls back to non-streaming chat when provider has no stream", async () => {
+    const provider = new MockProvider([
+      makeToolCallMessage("echo", { text: "hi" }),
+      makeTextMessage("done"),
+    ]);
+    const harness = makeHarness([], { provider });
+    const events: AgentEvent[] = [];
+    const bus = new EventBus();
+    bus.subscribe((e) => {
+      events.push(e);
+    });
+    const messages = harness.newSession();
+    await harness.runTurn(messages, "go", bus);
+    expect(events.map((e) => e.type)).toEqual([
+      "turn_start",
+      "tool_call",
+      "tool_result",
+      "turn_end",
+    ]);
+    expect(lastAssistantText(messages)).toBe("done");
+  });
+
+  it("falls back to chat when streaming fails", async () => {
+    const provider = new FailingStreamProvider([
+      makeToolCallMessage("echo", { text: "hi" }),
+      makeTextMessage("done"),
+    ]);
+    const harness = makeHarness([], { provider });
+    const events: AgentEvent[] = [];
+    const bus = new EventBus();
+    bus.subscribe((e) => {
+      events.push(e);
+    });
+    const messages = harness.newSession();
+    await harness.runTurn(messages, "go", bus);
+    expect(events.map((e) => e.type)).toEqual([
+      "turn_start",
+      "tool_call",
+      "tool_result",
+      "turn_end",
+    ]);
+    expect(lastAssistantText(messages)).toBe("done");
   });
 });

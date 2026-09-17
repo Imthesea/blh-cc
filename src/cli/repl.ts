@@ -3,13 +3,14 @@ import type { ChatMessage } from "../core/types.js";
 import type { TeamAgents } from "../core/harness.js";
 import type { JobsRuntime } from "../jobs/runtime.js";
 import type { GoalController } from "../goals/controller.js";
+import { EventBus, type AgentEvent } from "../core/events.js";
 
 export type GoalCommand = "status" | "clear" | "set" | null;
 
 /** repl 依赖的最小会话能力：结构化类型，测试可注入 fake */
 export interface TurnRunner {
   newSession(): ChatMessage[];
-  runTurn(messages: ChatMessage[], text: string): Promise<void>;
+  runTurn(messages: ChatMessage[], text: string, events?: EventBus): Promise<void>;
   runScheduledTurn?(messages: ChatMessage[]): Promise<void>;
   runTeamTurn?(messages: ChatMessage[]): Promise<void>;
   jobs?: JobsRuntime | undefined;
@@ -21,6 +22,7 @@ export interface TurnRunner {
 export interface ReplIO {
   readLine: () => Promise<string | null>; // null = EOF
   print: (text: string) => void;
+  write: (text: string) => void;
 }
 
 /** 从 start 起向队尾找最后一条 assistant 文本，只取本轮新增，避免打印 scheduled 旧回复 */
@@ -30,6 +32,38 @@ function lastAssistantTextFrom(messages: ChatMessage[], start: number): string {
     if (message?.role === "assistant" && message.content) return message.content;
   }
   return "";
+}
+
+/** 把一条高层事件渲染到终端：文本增量原样写，工具/轮次边界换行。 */
+function renderStreamEvent(io: ReplIO, event: AgentEvent, state: { textOpen: boolean }): void {
+  switch (event.type) {
+    case "turn_start":
+      return;
+    case "assistant_text_delta":
+      state.textOpen = true;
+      io.write(event.text);
+      return;
+    case "tool_call":
+      if (state.textOpen) {
+        io.write("\n");
+        state.textOpen = false;
+      }
+      io.print(`[tool] ${event.name} ${event.arguments}`);
+      return;
+    case "tool_result":
+      if (state.textOpen) {
+        io.write("\n");
+        state.textOpen = false;
+      }
+      io.print(`${event.isError ? "[error]" : "[ok]"} ${event.name}`);
+      return;
+    case "turn_end":
+      if (state.textOpen) {
+        io.write("\n");
+        state.textOpen = false;
+      }
+      return;
+  }
 }
 
 /** 造一个命令行输入输出对象：readLine 负责读一行，print 负责打印；打印时会处理"正在等输入"时的清屏重绘。 */
@@ -64,6 +98,16 @@ export function makeReadlineIO(rl?: readline.Interface): ReplIO {
         readlineInterface.prompt(true);
       } else {
         console.log(text);
+      }
+    },
+    write: (text) => {
+      if (awaitingInput) {
+        readline.clearLine(process.stdout, 0);
+        readline.cursorTo(process.stdout, 0);
+        process.stdout.write(text);
+        readlineInterface.prompt(true);
+      } else {
+        process.stdout.write(text);
       }
     },
   };
@@ -127,16 +171,26 @@ export async function repl(
         }
       }
       try {
-        if (jobs !== undefined) {
-          await jobs.agentLock.withLock(async () => {
-            const turnStart = messages.length;
-            await agent.runTurn(messages, text);
-            io.print(lastAssistantTextFrom(messages, turnStart));
-          });
-        } else {
+        const run = async () => {
           const turnStart = messages.length;
-          await agent.runTurn(messages, text);
-          io.print(lastAssistantTextFrom(messages, turnStart));
+          const events = new EventBus();
+          const state = { textOpen: false };
+          let streamed = false;
+          const off = events.subscribe((event) => {
+            if (event.type === "assistant_text_delta") streamed = true;
+            renderStreamEvent(io, event, state);
+          });
+          try {
+            await agent.runTurn(messages, text, events);
+          } finally {
+            off();
+          }
+          if (!streamed) io.print(lastAssistantTextFrom(messages, turnStart));
+        };
+        if (jobs !== undefined) {
+          await jobs.agentLock.withLock(run);
+        } else {
+          await run();
         }
       } catch (error) {
         io.print(`Error: ${error instanceof Error ? error.message : String(error)}`);

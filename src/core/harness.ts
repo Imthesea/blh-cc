@@ -3,6 +3,7 @@ import type { ToolRegistry } from "../tools/registry.js";
 import type { HookBus } from "./hooks.js";
 import { USER_PROMPT_SUBMIT, STOP } from "./hooks.js";
 import { agentLoop } from "./loop.js";
+import type { EventBus } from "./events.js";
 import { approvalContext } from "../security/approval.js";
 import type { ContextCompactor } from "../compaction/compactor.js";
 import type { TodoManager } from "../planning/todo.js";
@@ -80,7 +81,7 @@ export class Harness {
   }
 
   /** 跑一轮用户对话：把用户输入加进对话，处理记忆，然后交给 agentLoop 执行并收尾。 */
-  async runTurn(messages: ChatMessage[], text: string): Promise<void> {
+  async runTurn(messages: ChatMessage[], text: string, events?: EventBus): Promise<void> {
     await this.hooks.trigger(USER_PROMPT_SUBMIT, { text });
     const userMessage: ChatMessage = { role: "user", content: text };
     messages.push(userMessage);
@@ -89,7 +90,7 @@ export class Harness {
     if (this.memory && systemMessage) {
       systemMessage.content = await this.fullSystemPrompt(messages);
     }
-    await agentLoop(this, messages, text);
+    await agentLoop(this, messages, text, events);
     await this.hooks.trigger(STOP, {});
     if (this.memory && (await this.memory.extract(messages))) {
       await this.memory.consolidate();
