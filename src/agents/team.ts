@@ -41,6 +41,7 @@ export class TeamRuntime implements TeammateTeam {
   private teamTurn: (() => Promise<void>) | null = null;
   private leadTimer: NodeJS.Timeout | undefined;
 
+  /** 保存团队运行时要用的所有依赖（任务仓库、消息总线、锁、目录、模型 provider、配置、hooks）。 */
   constructor(
     readonly store: TaskStore,
     readonly bus: MessageBus,
@@ -53,10 +54,12 @@ export class TeamRuntime implements TeammateTeam {
   ) {}
 
   // ---- 生命周期 ----
+  /** 设置「lead 轮次」回调：当 lead 收件箱有消息时，由定时器触发这个回调。 */
   setTeamTurn(callback: () => Promise<void>): void {
     this.teamTurn = callback;
   }
 
+  /** 启动团队：每隔 200ms 检查一次 lead 收件箱；已经启动就直接返回。 */
   start(): void {
     if (this.started) return;
     this.started = true;
@@ -66,6 +69,7 @@ export class TeamRuntime implements TeammateTeam {
     this.leadTimer.unref();
   }
 
+  /** 停止团队：清掉定时器，并给所有活跃 teammate 发关闭请求。 */
   stop(): void {
     if (!this.started) return;
     this.started = false;
@@ -76,6 +80,7 @@ export class TeamRuntime implements TeammateTeam {
     }
   }
 
+  /** 定时器每次触发都执行：lead 有消息且能拿到锁，就触发一次 team 轮次。 */
   private async leadTick(): Promise<void> {
     if (!this.bus.peek("lead")) return;
     if (!this.agentLock.tryAcquire()) return;
@@ -87,15 +92,18 @@ export class TeamRuntime implements TeammateTeam {
   }
 
   // ---- bus 委托（teammate 侧） ----
+  /** 读某个 agent 的收件箱，直接转发给 MessageBus。 */
   readInbox(name: string): BusMessage[] {
     return this.bus.readInbox(name);
   }
 
+  /** 等某个 agent 的消息，直接转发给 MessageBus。 */
   waitForMessages(name: string, timeoutMs?: number): Promise<BusMessage[]> {
     return this.bus.waitForMessages(name, timeoutMs);
   }
 
   // ---- assignment / 任务 ----
+  /** 返回某个队友当前任务的工作目录，并检查任务是否还属于它、目录有没有变。 */
   assignmentCwd(owner: string): string {
     let assignment = this.assignments.get(owner);
     const inProgress = this.ownerInProgress(owner);
@@ -118,6 +126,7 @@ export class TeamRuntime implements TeammateTeam {
     return cwd;
   }
 
+  /** 找出某个队友正在进行中的任务，找不到就返回 null。 */
   private ownerInProgress(owner: string): Task | null {
     for (const task of this.store.list()) {
       if (task.status === "in_progress" && task.owner === owner) return task;
@@ -125,10 +134,12 @@ export class TeamRuntime implements TeammateTeam {
     return null;
   }
 
+  /** 算出一个任务对应的工作目录。 */
   private taskCwd(task: Task): string {
     return taskCwdOp(task, this.workdir, this.worktreesDir);
   }
 
+  /** 让某个 owner 认领一个任务；认领成功后记下它负责的任务和工作目录，把版本号加一，最后返回认领结果文本。 */
   claimTask(owner: string, taskId: string): string {
     if (this.assignments.has(owner) || this.ownerInProgress(owner) !== null) {
       return "Owner must complete its current task first";
@@ -148,6 +159,7 @@ export class TeamRuntime implements TeammateTeam {
     return result;
   }
 
+  /** 让某个队友完成一个任务，出错时把错误信息当文本返回。 */
   completeTask(owner: string, taskId: string): string {
     try {
       return this.store.complete(taskId, owner);
@@ -156,10 +168,12 @@ export class TeamRuntime implements TeammateTeam {
     }
   }
 
+  /** 列出所有任务。 */
   listTasks(): Task[] {
     return this.store.list();
   }
 
+  /** 找出还没人认领、且当前可以开始的任务（跳过目录算不出来的）。 */
   private scanUnclaimed(): Task[] {
     const ready: Task[] = [];
     for (const task of this.store.list()) {
@@ -175,6 +189,7 @@ export class TeamRuntime implements TeammateTeam {
     return ready;
   }
 
+  /** 让某个队友认领下一个可认领的任务；成功就返回这个任务，没有可认领的就返回 null。 */
   claimNextTask(name: string): Task | null {
     if (this.assignments.has(name) || this.ownerInProgress(name) !== null) return null;
     for (const task of this.scanUnclaimed()) {
@@ -184,6 +199,7 @@ export class TeamRuntime implements TeammateTeam {
     return null;
   }
 
+  /** 把某个 owner 的版本号加一（表示它的工作变了）；如果它本来要交计划，就把它打回"重新交计划"，并清掉旧的计划请求。 */
   private bumpVersion(owner: string): void {
     this.assignmentVersions.set(owner, (this.assignmentVersions.get(owner) ?? 0) + 1);
     const gate = this.planGates.get(owner);
@@ -193,11 +209,13 @@ export class TeamRuntime implements TeammateTeam {
     this.planRequestIds.delete(owner);
   }
 
+  /** 返回某个队友当前的版本号和任务 id，用来判断计划有没有过期。 */
   private currentWorkIdentity(owner: string): [number, string | null] {
     const assignment = this.assignments.get(owner);
     return [this.assignmentVersions.get(owner) ?? 0, assignment ? assignment.taskId : null];
   }
 
+  /** 任务做完后：清掉它负责的任务记录，把版本号加一，并把它标成"不用再交计划"。 */
   releaseCompleted(owner: string): void {
     const assignment = this.assignments.get(owner);
     if (!assignment) return;
@@ -208,6 +226,7 @@ export class TeamRuntime implements TeammateTeam {
     this.planGates.set(owner, "not_required");
   }
 
+  /** 收尾一个 teammate：把它的任务重置回 pending，清掉它相关的所有状态。 */
   finishTeammate(owner: string): void {
     const task = this.ownerInProgress(owner);
     if (task) {
@@ -223,6 +242,7 @@ export class TeamRuntime implements TeammateTeam {
   }
 
   // ---- 协议（teammate 侧） ----
+  /** teammate 给 lead 或别的活跃 teammate 发一条消息。 */
   sendMessage(
     fromName: string,
     to: string,
@@ -237,6 +257,7 @@ export class TeamRuntime implements TeammateTeam {
     return `Sent to ${to}`;
   }
 
+  /** teammate 提交计划等 lead 审批：登记请求、置为 pending，并把计划发给 lead。 */
   submitPlan(fromName: string, plan: string): string {
     const assignment = this.assignments.get(fromName);
     const taskId = assignment ? assignment.taskId : null;
@@ -263,14 +284,17 @@ export class TeamRuntime implements TeammateTeam {
     return `Plan submitted (${requestId}). Wait for Lead's decision.`;
   }
 
+  /** 查某个队友的计划状态，默认返回"不用交计划"。 */
   getPlanGate(name: string): string {
     return this.planGates.get(name) ?? "not_required";
   }
 
+  /** 设置某个队友的活跃状态。 */
   setActive(name: string, status: string): void {
     this.activeTeammates.set(name, status);
   }
 
+  /** 处理关闭请求：校验通过就标记为 stopping，返回 [是否生效, requestId 或忽略原因]。 */
   applyShutdownRequest(name: string, msg: BusMessage): [boolean, string] {
     const requestId = String(msg.metadata["request_id"] ?? "");
     const state = this.pendingRequests.get(requestId);
@@ -288,6 +312,7 @@ export class TeamRuntime implements TeammateTeam {
     return [true, requestId];
   }
 
+  /** 处理 lead 对计划的审批结果：校验通过就更新 plan gate 和状态，返回 [是否生效, 结果文本]。 */
   applyPlanResponse(name: string, msg: BusMessage): [boolean, string] {
     const requestId = String(msg.metadata["request_id"] ?? "");
     const [workVersion, taskId] = this.currentWorkIdentity(name);
@@ -314,6 +339,7 @@ export class TeamRuntime implements TeammateTeam {
   }
 
   // ---- 协议（lead 侧） ----
+  /** 生成一个不重复的请求 id（req_ 开头 + 6 位随机数）。 */
   private newRequestId(): string {
     for (;;) {
       const requestId = `req_${Math.floor(Math.random() * 1000000)
@@ -323,6 +349,7 @@ export class TeamRuntime implements TeammateTeam {
     }
   }
 
+  /** 创建并启动一个 teammate，做名字校验和认领（可选），返回结果文本。 */
   spawnTeammate(name: string, role: string, prompt: string, taskId?: string, requirePlan = false): string {
     if (!isValidAgentName(name)) {
       return "Invalid teammate name: use 1-64 letters, digits, underscores, or dashes";
@@ -362,6 +389,7 @@ export class TeamRuntime implements TeammateTeam {
     return `Teammate '${name}' spawned as ${role}${assigned}. End this turn; the runtime will deliver its events.`;
   }
 
+  /** 列出所有活跃 teammate，按名字排序，格式为「名字: 状态」每行一个。 */
   listTeammates(): string {
     if (this.activeTeammates.size === 0) return "No active teammates.";
     return [...this.activeTeammates.entries()]
@@ -370,12 +398,14 @@ export class TeamRuntime implements TeammateTeam {
       .join("\n");
   }
 
+  /** lead 给某个活跃 teammate 发一条消息。 */
   leadSendMessage(to: string, content: string): string {
     if (!this.activeTeammates.has(to)) return `Teammate '${to}' is not active`;
     this.bus.send("lead", to, content);
     return `Sent to ${to}`;
   }
 
+  /** lead 请求某个队友关闭：登记请求并发送关闭消息。 */
   requestShutdown(teammate: string): string {
     if (!this.activeTeammates.has(teammate)) {
       return `Teammate '${teammate}' is not active`;
@@ -398,6 +428,7 @@ export class TeamRuntime implements TeammateTeam {
     return `Shutdown requested from ${teammate} (${requestId})`;
   }
 
+  /** lead 要求某个队友先提交计划：把它的计划状态设为"要交计划"并通知它。 */
   requestPlan(teammate: string, task: string): string {
     if (!this.activeTeammates.has(teammate)) {
       return `Teammate '${teammate}' is not active`;
@@ -407,6 +438,7 @@ export class TeamRuntime implements TeammateTeam {
     return `Plan requested from ${teammate}`;
   }
 
+  /** lead 审批（同意/拒绝）一个计划，通过后把结果发回给对应 teammate。 */
   reviewPlan(requestId: string, approve: boolean, feedback = ""): string {
     const state = this.pendingRequests.get(requestId);
     if (!state) return `Request ${requestId} not found`;
@@ -429,11 +461,13 @@ export class TeamRuntime implements TeammateTeam {
     return `Plan ${state.status} (${requestId})`;
   }
 
+  /** 为某个任务创建并绑定一个工作树。 */
   createWorktree(name: string, taskId: string): string {
     return createWorktreeOp(this.store, this.workdir, this.worktreesDir, name, taskId);
   }
 
   // ---- lead 收件箱消费 ----
+  /** 读 lead 收件箱：先匹配响应更新请求状态，再把团队事件格式化成一条 user 消息塞进主对话。 */
   consumeAndInjectTeam(messages: ChatMessage[]): number {
     const msgs = this.bus.readInbox("lead");
     for (const msg of msgs) {
@@ -447,6 +481,7 @@ export class TeamRuntime implements TeammateTeam {
     return msgs.length;
   }
 
+  /** 把一条响应消息和待处理请求对上号，对上就更新请求状态为 approved/rejected。 */
   private matchResponse(
     responseType: string,
     requestId: string,
@@ -463,6 +498,7 @@ export class TeamRuntime implements TeammateTeam {
     state.status = approve ? "approved" : "rejected";
   }
 
+  /** 把团队消息格式化成给主智能体看的文本（[类型] 发送者: 内容 一行一条）。 */
   private formatTeamEvents(msgs: BusMessage[]): string {
     const lines = msgs.map((msg) => {
       const requestId = msg.metadata["request_id"];

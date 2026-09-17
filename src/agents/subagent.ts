@@ -5,9 +5,10 @@ import { registerBuiltinTools } from "../tools/index.js";
 import { ToolRegistry } from "../tools/registry.js";
 
 const SUB_SYSTEM =
-  "You are a coding agent. Complete the given task, then return a concise final answer.";
+  "你是一个编程智能体。完成给定的任务，然后返回一个简洁的最终回答。";
 const MAX_SUBAGENT_TURNS = 30;
 
+/** 把工具调用传过来的 JSON 字符串解析成对象；解析失败或不是普通对象时，返回空对象 {}。 */
 function parseArgs(raw: string): Record<string, unknown> {
   try {
     const parsed: unknown = JSON.parse(raw);
@@ -23,6 +24,10 @@ function parseArgs(raw: string): Record<string, unknown> {
 export class SubagentRunner {
   readonly tools = new ToolRegistry();
 
+  /**
+   * 创建子智能体运行器。
+   * provider 用来调模型，config 是全局配置，hooks 用来做工具执行前/后的权限拦截和回调。
+   */
   constructor(
     readonly provider: ChatProvider,
     readonly config: Config,
@@ -31,6 +36,11 @@ export class SubagentRunner {
     registerBuiltinTools(this.tools, config);
   }
 
+  /**
+   * 跑一个一次性的子智能体任务：
+   * 用全新的消息列表、只带内置工具，最多循环 30 轮，直到模型不再调用工具，返回最终文本。
+   * 超过 30 轮还没结束，就返回一条提示说明。
+   */
   async run(prompt: string): Promise<string> {
     const messages: ChatMessage[] = [
       { role: "system", content: SUB_SYSTEM },

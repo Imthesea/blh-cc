@@ -16,7 +16,7 @@ export class ConfigError extends Error {
   }
 }
 
-/** 从 start 向上逐级查找第一个 .env 文件（必须存在且为普通文件） */
+/** 从 start 目录开始，一层一层往上找第一个 .env 文件（必须是真实存在的普通文件）；找不到就返回 undefined。 */
 function findDotenv(start: string): string | undefined {
   let dir = path.resolve(start);
   for (;;) {
@@ -28,6 +28,7 @@ function findDotenv(start: string): string | undefined {
   }
 }
 
+/** 判断某个路径是不是真实存在的普通文件；不存在、或是个目录，都返回 false。 */
 function isFile(candidate: string): boolean {
   try {
     return statSync(candidate).isFile();
@@ -36,7 +37,7 @@ function isFile(candidate: string): boolean {
   }
 }
 
-/** 按「低优先级在前」返回配置文件:用户级 → 项目级(仅含存在的)。 */
+/** 按「优先级从低到高」收集要加载的配置文件：先用户级，再项目级；只保留真实存在的文件。 */
 function findConfig(start: string): string[] {
   const files: string[] = [];
   const user = path.join(os.homedir(), ".config", "blh", "config.yaml");
@@ -55,15 +56,17 @@ function findConfig(start: string): string[] {
   return files;
 }
 
+/** 把一个值转成整数；转不了（比如传了 "abc"）就抛错。用来校验配置里的数字项。 */
 function toInt(value: unknown, key: string): number {
   if (typeof value === "number" && Number.isInteger(value)) return value;
   const text = String(value).trim();
   if (!/^-?\d+$/.test(text)) {
-    throw new ConfigError(`invalid int for ${key}: ${JSON.stringify(value)}`);
+    throw new ConfigError(`${key} 不是合法的整数: ${JSON.stringify(value)}`);
   }
   return Number.parseInt(text, 10);
 }
 
+/** 加载最终配置：按「命令行 > 环境变量 > 配置文件 > 默认值」的优先级合并，并校验 API key、超时等关键项。 */
 export function loadConfig(workdir?: string, cli?: Record<string, unknown>): Config {
   const dotenv = findDotenv(process.cwd());
   if (dotenv) {
@@ -77,12 +80,13 @@ export function loadConfig(workdir?: string, cli?: Record<string, unknown>): Con
     const data: unknown = parseYaml(readFileSync(filePath, "utf8"));
     if (data === null || data === undefined) continue;
     if (typeof data !== "object" || Array.isArray(data)) {
-      throw new ConfigError(`config ${filePath} must be a mapping`);
+      throw new ConfigError(`配置文件 ${filePath} 必须是一个键值对映射`);
     }
     Object.assign(fileValues, data);
   }
-  log.debug("config loaded", { files: findConfig(process.cwd()) });
+  log.debug("配置已加载", { files: findConfig(process.cwd()) });
 
+  /** 按优先级取一个配置值：命令行 > 环境变量 > 配置文件 > 默认值。 */
   const get = (key: string, envName: string | undefined, defaultValue: unknown): unknown => {
     const cliValue = cliValues[key];
     if (cliValue !== undefined && cliValue !== null) return cliValue;
@@ -97,7 +101,7 @@ export function loadConfig(workdir?: string, cli?: Record<string, unknown>): Con
 
   const apiKey = String(get("api_key", "OPENAI_API_KEY", ""));
   if (!apiKey) {
-    log.error("OPENAI_API_KEY is not set");
+    log.error("没有设置 OPENAI_API_KEY");
     process.exit(1);
   }
   const rawBaseUrl = get("base_url", "OPENAI_BASE_URL", undefined);

@@ -8,8 +8,10 @@ import { createLogger } from "./logger.js";
 
 const log = createLogger("core.loop");
 
+/** 提示词过长时，允许「被动压缩后重试」的最大次数 */
 const MAX_REACTIVE_RETRIES = 1;
 
+/** 判断一个值是不是普通对象（排除 null 和数组），用于校验解析出的 JSON */
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -24,6 +26,7 @@ export function parseToolArguments(raw: string): Record<string, unknown> {
   }
 }
 
+/** 从后往前找最后一条 assistant 消息，返回它的文本内容；没有则返回空串 */
 export function lastAssistantText(messages: ChatMessage[]): string {
   for (let i = messages.length - 1; i >= 0; i--) {
     const message = messages[i];
@@ -32,6 +35,11 @@ export function lastAssistantText(messages: ChatMessage[]): string {
   return "";
 }
 
+/**
+ * 核心对话循环：反复调用模型，直到模型不再要求调用工具为止。
+ * 每轮先压缩历史、注入后台任务结果，再请求模型；
+ * 模型返回工具调用则逐个执行，否则评估目标是否满足后决定继续还是结束。
+ */
 export async function agentLoop(
   harness: Harness,
   messages: ChatMessage[],
@@ -143,6 +151,7 @@ function restoreSystem(messages: ChatMessage[], systemMessage: ChatMessage): voi
   if (messages[0]?.role !== "system") messages.unshift(systemMessage);
 }
 
+/** 一轮对话收尾时评估目标是否已达成；没有目标控制器则直接返回 null */
 async function evaluateGoalStop(harness: Harness, messages: ChatMessage[]): Promise<StopDecision | null> {
   const goal = harness.goal;
   if (goal === undefined) return null;
@@ -150,6 +159,7 @@ async function evaluateGoalStop(harness: Harness, messages: ChatMessage[]): Prom
   return goal.evaluateAfterTurn(messages, backgroundRunning);
 }
 
+/** 目标尚未达成、需要让模型继续干活时，拼出给模型的提示文本 */
 function goalReminder(goal: GoalController | undefined, decision: StopDecision): string {
   const condition = goal?.active?.condition ?? "";
   return (

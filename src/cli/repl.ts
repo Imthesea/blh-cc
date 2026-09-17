@@ -32,6 +32,7 @@ function lastAssistantTextFrom(messages: ChatMessage[], start: number): string {
   return "";
 }
 
+/** 造一个命令行输入输出对象：readLine 负责读一行，print 负责打印；打印时会处理"正在等输入"时的清屏重绘。 */
 export function makeReadlineIO(rl?: readline.Interface): ReplIO {
   const readlineInterface =
     rl ??
@@ -68,6 +69,7 @@ export function makeReadlineIO(rl?: readline.Interface): ReplIO {
   };
 }
 
+/** 交互式主循环：读用户输入 → 跑一轮智能体 → 打印回复；同时接上定时任务和团队任务的后台处理。 */
 export async function repl(
   agent: TurnRunner,
   io: ReplIO,

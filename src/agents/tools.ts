@@ -24,7 +24,7 @@ export function registerAgentTools(
 ): void {
   registry.register({
     name: "task",
-    description: "Run a subagent with fresh context and return its final text.",
+    description: "用全新上下文跑一个子智能体，返回它的最终文本。",
     parameters: {
       type: "object",
       properties: { prompt: { type: "string" } },
@@ -34,7 +34,7 @@ export function registerAgentTools(
   });
   registry.register({
     name: "spawn_teammate",
-    description: "Spawn a persistent teammate.",
+    description: "创建一个常驻的队友。",
     parameters: {
       type: "object",
       properties: {
@@ -57,13 +57,13 @@ export function registerAgentTools(
   });
   registry.register({
     name: "list_teammates",
-    description: "List active teammates.",
+    description: "列出当前活跃的队友。",
     parameters: { type: "object", properties: {} },
     handler: async () => team.listTeammates(),
   });
   registry.register({
     name: "send_message",
-    description: "Message a teammate.",
+    description: "给一个队友发消息。",
     parameters: {
       type: "object",
       properties: { to: { type: "string" }, content: { type: "string" } },
@@ -74,7 +74,7 @@ export function registerAgentTools(
   });
   registry.register({
     name: "request_shutdown",
-    description: "Ask a teammate to shut down.",
+    description: "让一个队友关闭。",
     parameters: {
       type: "object",
       properties: { teammate: { type: "string" } },
@@ -84,7 +84,7 @@ export function registerAgentTools(
   });
   registry.register({
     name: "request_plan",
-    description: "Require a teammate plan before workspace changes.",
+    description: "要求某个队友先提交计划，才能改工作区。",
     parameters: {
       type: "object",
       properties: { teammate: { type: "string" }, task: { type: "string" } },
@@ -95,7 +95,7 @@ export function registerAgentTools(
   });
   registry.register({
     name: "review_plan",
-    description: "Approve or reject a plan.",
+    description: "批准或拒绝一份计划。",
     parameters: {
       type: "object",
       properties: {
@@ -114,7 +114,7 @@ export function registerAgentTools(
   });
   registry.register({
     name: "create_worktree",
-    description: "Create and bind a task worktree.",
+    description: "为任务创建并绑定一个工作树。",
     parameters: {
       type: "object",
       properties: { name: { type: "string" }, task_id: { type: "string" } },

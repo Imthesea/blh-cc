@@ -1,10 +1,11 @@
-/** 与模型交互的消息格式（对齐 OpenAI chat.completions） */
+/** 一次工具调用的描述：模型想调用哪个函数、传什么参数 */
 export interface ToolCall {
   id: string;
   type: "function";
   function: { name: string; arguments: string };
 }
 
+/** 与模型交互的一条消息（对齐 OpenAI chat.completions） */
 export interface ChatMessage {
   role: "system" | "user" | "assistant" | "tool";
   content: string | null;
@@ -25,12 +26,14 @@ export type JsonSchemaProperty = {
   required?: string[];
 };
 
+/** 工具参数的 JSON Schema，整体必须是一个 object */
 export type ToolParameters = {
   type: "object";
   properties?: Record<string, JsonSchemaProperty>;
   required?: string[];
 };
 
+/** 一个可供模型调用的工具：名字、参数说明，以及真正执行的处理函数 */
 export interface ToolDefinition {
   name: string;
   description: string;
@@ -38,6 +41,7 @@ export interface ToolDefinition {
   handler: ToolHandler;
 }
 
+/** 运行配置：模型、工作目录、bash 超时和输出长度上限等 */
 export interface Config {
   apiKey: string;
   baseUrl?: string;

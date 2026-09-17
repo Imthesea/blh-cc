@@ -5,6 +5,7 @@ import type { Task, TaskStore } from "../planning/tasks.js";
 
 const VALID_WORKTREE_NAME = /^(?!.*\.\.)[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 
+/** 校验 worktree 名字是否合法（1-64 位字母数字点下划线短横线，且以字母或数字开头）；合法返回 null，不合法返回错误说明。 */
 export function validateWorktreeName(name: string): string | null {
   if (typeof name !== "string" || !VALID_WORKTREE_NAME.test(name)) {
     return (
@@ -15,10 +16,12 @@ export function validateWorktreeName(name: string): string | null {
   return null;
 }
 
+/** 根据名字生成对应的 git 分支名：就是 "wt/" 前缀 + 名字。 */
 export function worktreeBranch(name: string): string {
   return `wt/${name}`;
 }
 
+/** 把名字拼成 worktree 目录下的绝对路径，并防止路径逃出该目录。 */
 export function worktreePath(worktreesDir: string, name: string): string {
   const resolved = path.resolve(worktreesDir, name);
   const root = path.resolve(worktreesDir);
@@ -28,7 +31,7 @@ export function worktreePath(worktreesDir: string, name: string): string {
   return resolved;
 }
 
-/** 等价 Python subprocess.run(capture_output=True, timeout=30)。 */
+/** 在指定目录里执行 git 命令，30 秒超时；返回 [是否成功, 输出文本]。 */
 export function runGit(args: string[], cwd: string): [boolean, string] {
   const result = spawnSync("git", args, { cwd, encoding: "utf8", timeout: 30000 });
   const output = ((result.stdout ?? "") + (result.stderr ?? "")).trim();
@@ -57,6 +60,7 @@ function registeredWorktrees(workdir: string): [Record<string, Record<string, st
   return [entries, null];
 }
 
+/** 查一个 worktree 是否在 git 里注册过、路径还在不在；返回 [绝对路径或 null, 错误或 null]。 */
 export function registeredWorktree(
   workdir: string,
   worktreesDir: string,
@@ -81,7 +85,7 @@ export function registeredWorktree(
   return [path.resolve(rawPath), null];
 }
 
-/** 解析任务工作目录；worktree 绑定损坏时 fail-closed。 */
+/** 算出任务的工作目录；任务没绑定 worktree 就用主目录，绑定的 worktree 坏了就直接报错。 */
 export function taskCwd(task: Task, workdir: string, worktreesDir: string): string {
   if (!task.worktree) return path.resolve(workdir);
   const [resolved, error] = registeredWorktree(workdir, worktreesDir, task.worktree);
@@ -89,6 +93,7 @@ export function taskCwd(task: Task, workdir: string, worktreesDir: string): stri
   return resolved as string;
 }
 
+/** 给任务创建一个 git worktree 并绑定：做一堆校验，创建成功后把任务和 worktree 关联起来。 */
 export function createWorktree(
   store: TaskStore,
   workdir: string,
@@ -172,6 +177,7 @@ export function createWorktree(
   return `Worktree '${name}' created at ${resolved} for task ${taskId}`;
 }
 
+/** 删除一个 worktree 并解绑任务：删除前检查任务是否已完成、有没有未提交改动。 */
 export function removeWorktree(
   store: TaskStore,
   workdir: string,

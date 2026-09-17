@@ -11,6 +11,7 @@ import type { Task, TaskStore } from "../planning/tasks.js";
 
 const IDLE_SCAN_INTERVAL = 2000;
 
+/** 把工具调用传过来的 JSON 字符串解析成对象；解析失败或不是普通对象时，返回空对象 {}。 */
 function parseArgs(raw: string): Record<string, unknown> {
   try {
     const parsed: unknown = JSON.parse(raw);
@@ -54,6 +55,7 @@ export class TeammateRuntime {
   readonly messages: ChatMessage[];
   private readonly system: string;
 
+  /** 创建一个队友运行器：记下它的名字/角色/任务/是否需要计划，设置系统提示词、初始消息和可用工具。 */
   constructor(
     readonly name: string,
     readonly role: string,
@@ -67,14 +69,12 @@ export class TeammateRuntime {
     readonly team: TeammateTeam,
   ) {
     this.system =
-      `You are '${name}', a ${role}. Use tools to complete the assigned Task, ` +
-      "then call complete_task and report a concise result. " +
-      "If the first user message contains [Assigned task], that Task is already claimed; " +
-      "do not call claim_task for it again. " +
-      "When asked for a plan, call submit_plan and wait for approval before bash or file changes. " +
-      "File and shell tools use the Task's working directory; that directory is not a sandbox. " +
-      "The runtime delivers your final text to Lead. Use send_message only for intermediate " +
-      "coordination, and address the coordinator as 'lead'.";
+      `你是 '${name}'，一名 ${role}。用工具完成分配给你的任务，` +
+      "完成后调用 complete_task 并报告一个简洁的结果。 " +
+      "如果第一条用户消息里包含 [Assigned task]，说明这个任务已经被认领了，不要再调用 claim_task。 " +
+      "当被要求提交计划时，调用 submit_plan，并在用 bash 或改文件之前等待审批。 " +
+      "文件工具和 shell 工具都在任务的工作目录里执行，那个目录不是沙箱。 " +
+      "运行时会把你最终的文本交给 Lead。send_message 只用于中间协调，并称呼协调者为 'lead'。";
 
     let userContent = prompt;
     if (taskId) {
@@ -93,6 +93,7 @@ export class TeammateRuntime {
     this.tools = this.buildTools();
   }
 
+  /** 注册这个队友能用的工具：bash、读写文件、glob、发消息、提交计划、认领/完成任务等。 */
   private buildTools(): ToolRegistry {
     const registry = new ToolRegistry();
     registry.register({
@@ -187,6 +188,7 @@ export class TeammateRuntime {
     return registry;
   }
 
+  /** 取当前任务的工作目录；取不到就返回一个带 error 字段的对象。 */
   private currentCwd(): { cwd: string } | { error: string } {
     try {
       return { cwd: this.team.assignmentCwd(this.name) };
@@ -197,36 +199,42 @@ export class TeammateRuntime {
     }
   }
 
+  /** 在任务工作目录里执行 shell 命令；没有目录就先返回错误。 */
   private async runBash(args: Record<string, unknown>): Promise<string> {
     const current = this.currentCwd();
     if ("error" in current) return current.error;
     return runBash(current.cwd, this.config.bashTimeout, this.config.maxOutputChars, args);
   }
 
+  /** 在任务工作目录里读文件；没有目录就先返回错误。 */
   private async runRead(args: Record<string, unknown>): Promise<string> {
     const current = this.currentCwd();
     if ("error" in current) return current.error;
     return readFile(current.cwd, args);
   }
 
+  /** 在任务工作目录里写文件；没有目录就先返回错误。 */
   private async runWrite(args: Record<string, unknown>): Promise<string> {
     const current = this.currentCwd();
     if ("error" in current) return current.error;
     return writeFile(current.cwd, args);
   }
 
+  /** 在任务工作目录里改文件；没有目录就先返回错误。 */
   private async runEdit(args: Record<string, unknown>): Promise<string> {
     const current = this.currentCwd();
     if ("error" in current) return current.error;
     return editFile(current.cwd, args);
   }
 
+  /** 在任务工作目录里按模式找文件；没有目录就先返回错误。 */
   private async runGlob(args: Record<string, unknown>): Promise<string> {
     const current = this.currentCwd();
     if ("error" in current) return current.error;
     return glob(current.cwd, args);
   }
 
+  /** 把共享任务列表格式化成一屏文本，每行一个任务，带上状态、归属人、依赖、工作树。 */
   private renderTasks(): string {
     const tasks = this.team.listTasks();
     if (tasks.length === 0) return "No tasks.";
@@ -240,6 +248,7 @@ export class TeammateRuntime {
       .join("\n");
   }
 
+  /** 执行一个工具：先检查计划状态（没批准就不让动文件/bash），再过权限钩子，最后真正执行。 */
   private async runTool(event: { name: string; input: Record<string, unknown> }): Promise<string> {
     const name = event.name;
     const gate = this.team.getPlanGate(this.name);
@@ -263,6 +272,7 @@ export class TeammateRuntime {
     }
   }
 
+  /** 处理收件箱里的消息：关闭请求、计划审批结果、计划要求、普通消息分别处理；收到并接受关闭请求就返回 true。 */
   handleInbox(inbox: BusMessage[]): boolean {
     const workMessages: string[] = [];
     for (const msg of inbox) {
@@ -295,6 +305,7 @@ export class TeammateRuntime {
     return false;
   }
 
+  /** 空闲时循环等活：有消息就处理，没消息就试着认领下一个任务；拿到活返回 true。 */
   async waitForWork(): Promise<boolean> {
     for (;;) {
       const inbox = await this.team.waitForMessages(this.name, IDLE_SCAN_INTERVAL);
@@ -315,6 +326,7 @@ export class TeammateRuntime {
     }
   }
 
+  /** 跑一轮队友工作：处理收件箱 → 调模型 → 执行工具 → 汇报结果或进入空闲。返回下一步状态。 */
   async work(): Promise<string> {
     if (this.handleInbox(this.team.readInbox(this.name))) return "stop";
     this.team.setActive(this.name, "working");
@@ -356,6 +368,7 @@ export class TeammateRuntime {
     return "idle";
   }
 
+  /** 队友主循环：持续工作直到收到关闭请求或出错；最后做收尾清理。 */
   async run(): Promise<void> {
     try {
       let state = "continue";
