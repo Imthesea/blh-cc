@@ -12,9 +12,11 @@ import { lastAssistantText } from "../core/loop.js";
 import { OpenAIProvider } from "../providers/openai.js";
 import { ToolRegistry } from "../tools/registry.js";
 import { registerBuiltinTools } from "../tools/index.js";
-import { DEFAULT_RULES } from "../security/rules.js";
+import { DEFAULT_RULES, SKIP_PERMISSIONS_RULES } from "../security/rules.js";
 import { makePermissionHook } from "../security/approval.js";
 import { repl, makeReadlineIO } from "./repl.js";
+import type { ChatMessage } from "../core/types.js";
+import { SessionStore } from "../session/store.js";
 import { TaskStore } from "../planning/tasks.js";
 import { TodoManager } from "../planning/todo.js";
 import { registerPlanningTools } from "../planning/tools.js";
@@ -45,6 +47,9 @@ export interface ParsedCliArgs {
   prompt?: string;
   workdir?: string;
   help?: boolean;
+  skipPermissions?: boolean;
+  continue?: boolean;
+  continueFile?: string;
   cli: Record<string, string>;
 }
 
@@ -54,6 +59,18 @@ function stringValue(
 ): string | undefined {
   const value = values[key];
   return typeof value === "string" ? value : undefined;
+}
+
+function parseContinue(argv: string[]): { continue?: boolean; continueFile?: string } {
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] !== "--continue") continue;
+    const next = argv[i + 1];
+    if (next !== undefined && !next.startsWith("-")) {
+      return { continue: true, continueFile: next };
+    }
+    return { continue: true };
+  }
+  return {};
 }
 
 export function parseCliArgs(argv: string[]): ParsedCliArgs {
@@ -66,6 +83,7 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
       workdir: { type: "string" },
       "bash-timeout": { type: "string" },
       "max-output-chars": { type: "string" },
+      "dangerously-skip-permissions": { type: "boolean" },
     },
     strict: false,
   });
@@ -77,6 +95,7 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
   const workdirValue = stringValue(values, "workdir");
   const prompt = stringValue(values, "print");
   const help = values.help === true;
+  const skipPermissions = values["dangerously-skip-permissions"] === true;
 
   const cli: Record<string, string> = {};
   if (model !== undefined) cli.model = model;
@@ -89,6 +108,8 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
     ...(help ? { help } : {}),
     ...(prompt !== undefined ? { prompt } : {}),
     ...(workdirValue !== undefined ? { workdir: workdirValue } : {}),
+    ...(skipPermissions ? { skipPermissions } : {}),
+    ...parseContinue(argv),
     cli,
   };
 }
@@ -106,6 +127,7 @@ export function buildHarness(
   workdir?: string,
   cli?: Record<string, unknown>,
   askUser?: (prompt: string) => Promise<string>,
+  skipPermissions = false,
 ): Harness {
   const config = loadConfig(workdir, cli);
   initLogger(config.workdir);
@@ -113,7 +135,8 @@ export function buildHarness(
   const tools = new ToolRegistry();
   const hooks = new HookBus();
   registerBuiltinTools(tools, config);
-  const permissionHook = makePermissionHook(DEFAULT_RULES, askUser);
+  const rules = skipPermissions ? SKIP_PERMISSIONS_RULES : DEFAULT_RULES;
+  const permissionHook = makePermissionHook(rules, askUser);
   hooks.register(PRE_TOOL_USE, (payload) => permissionHook(payload.name, payload.input));
   registerCompactTool(tools);
   const todoManager = new TodoManager();
@@ -129,7 +152,6 @@ export function buildHarness(
   );
   const compactor = new ContextCompactor({
     provider,
-    transcriptDir: path.join(config.workdir, ".transcripts"),
     toolResultsDir: path.join(config.workdir, ".task_outputs", "tool-results"),
   });
   const agents = new TeamRuntime(
@@ -157,6 +179,7 @@ export function buildHarness(
 const USAGE = `usage: blh [-h] [-p PROMPT] [--model MODEL] [--base-url BASE_URL]
             [--workdir WORKDIR] [--bash-timeout BASH_TIMEOUT]
             [--max-output-chars MAX_OUTPUT_CHARS]
+            [--dangerously-skip-permissions]
 
 coding agent CLI (TypeScript)
 
@@ -167,10 +190,14 @@ options:
   --workdir WORKDIR     working directory
   --bash-timeout N      bash timeout in seconds
   --max-output-chars N  max captured output characters
+  --dangerously-skip-permissions
+                        allow all bash commands except hard deny rules
+  --continue [FILE]     continue a previous session (latest, or FILE in .sessions/)
   -h, --help            show this help message and exit`;
 
 async function main(): Promise<void> {
-  const { prompt, workdir, cli, help } = parseCliArgs(process.argv.slice(2));
+  const { prompt, workdir, cli, help, skipPermissions, continue: doContinue, continueFile } =
+    parseCliArgs(process.argv.slice(2));
   if (help) {
     console.log(USAGE);
     return;
@@ -180,7 +207,7 @@ async function main(): Promise<void> {
       log.error("usage: blh -p <text>");
       process.exit(1);
     }
-    const harness = buildHarness(workdir, cli);
+    const harness = buildHarness(workdir, cli, undefined, skipPermissions);
     log.info("start", { workdir: harness.config.workdir, model: harness.config.model });
     const messages = harness.newSession();
     await harness.runTurn(messages, prompt);
@@ -191,9 +218,26 @@ async function main(): Promise<void> {
     input: process.stdin,
     output: process.stdout,
   });
-  const harness = buildHarness(workdir, cli, makeAskUser(rl));
+  const harness = buildHarness(workdir, cli, makeAskUser(rl), skipPermissions);
   log.info("start repl", { workdir: harness.config.workdir, model: harness.config.model });
-  await repl(harness, makeReadlineIO(rl));
+
+  let messages: ChatMessage[];
+  if (doContinue) {
+    const file = continueFile
+      ? path.join(harness.config.workdir, ".sessions", continueFile)
+      : SessionStore.latest(harness.config.workdir);
+    if (!file) {
+      log.error("no session found to continue");
+      process.exit(1);
+    }
+    harness.sessionStore = SessionStore.open(file);
+    messages = harness.newSession();
+    messages.push(...SessionStore.load(file));
+  } else {
+    harness.sessionStore = SessionStore.create(harness.config.workdir);
+    messages = harness.newSession();
+  }
+  await repl(harness, makeReadlineIO(rl), messages);
 }
 
 const isDirectRun =

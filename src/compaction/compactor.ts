@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import * as path from "node:path";
 import type { ChatMessage, ChatProvider } from "../core/types.js";
@@ -13,7 +12,6 @@ export const SUMMARY_SYSTEM =
 
 export interface CompactorOptions {
   provider: ChatProvider;
-  transcriptDir: string;
   toolResultsDir: string;
 }
 
@@ -26,7 +24,6 @@ export class ContextCompactor {
   static readonly KEEP_RECENT_MESSAGES = 5;
 
   readonly provider: ChatProvider;
-  readonly transcriptDir: string;
   readonly toolResultsDir: string;
 
   /** 实例级上下文阈值，默认取静态常量；测试可覆写（TS 实例无法遮蔽 static） */
@@ -34,7 +31,6 @@ export class ContextCompactor {
 
   constructor(options: CompactorOptions) {
     this.provider = options.provider;
-    this.transcriptDir = options.transcriptDir;
     this.toolResultsDir = options.toolResultsDir;
   }
 
@@ -76,17 +72,6 @@ export class ContextCompactor {
 
   private static isFile(candidate: string): boolean {
     return existsSync(candidate) && statSync(candidate).isFile();
-  }
-
-  writeTranscript(messages: ChatMessage[]): string {
-    mkdirSync(this.transcriptDir, { recursive: true });
-    const filePath = path.join(
-      this.transcriptDir,
-      `transcript_${randomUUID().replaceAll("-", "")}.jsonl`,
-    );
-    const content = messages.map((m) => JSON.stringify(m)).join("\n") + "\n";
-    writeFileSync(filePath, content, { encoding: "utf8", flag: "wx" });
-    return filePath;
   }
 
   saveOutput(toolCallId: string, output: string): string {
@@ -224,15 +209,7 @@ export class ContextCompactor {
   }
 
   isArchiveMarker(message: ChatMessage): boolean {
-    const content = message.content;
-    if (content === null) return false;
-    const match = /^\[\d+ messages archived at (.+)\]$/.exec(content);
-    const candidate = match?.[1];
-    if (!candidate) return false;
-    return (
-      ContextCompactor.isInsideDir(candidate, this.transcriptDir) &&
-      ContextCompactor.isFile(candidate)
-    );
+    return message.content !== null && /^\[\d+ messages archived\]$/.test(message.content);
   }
 
   /** 消息数超限时归档中段，留头 3 条 + 尾部；保护 tool 配对边界 */
@@ -256,10 +233,9 @@ export class ContextCompactor {
     if (middle.length === 1 && middle[0] && this.isArchiveMarker(middle[0])) {
       return messages;
     }
-    const transcriptPath = this.writeTranscript(messages);
     const marker: ChatMessage = {
       role: "user",
-      content: `[${tailStart - headEnd} messages archived at ${transcriptPath}]`,
+      content: `[${tailStart - headEnd} messages archived]`,
     };
     return [...messages.slice(0, headEnd), marker, ...messages.slice(tailStart)];
   }
@@ -288,31 +264,18 @@ export class ContextCompactor {
     return (response.content ?? "").trim() || "(empty summary)";
   }
 
-  static summaryMessage(
-    label: string,
-    request: string,
-    summary: string,
-    transcript: string,
-  ): ChatMessage {
+  static summaryMessage(label: string, request: string, summary: string): ChatMessage {
     return {
       role: "user",
       content:
         `[${label}]\n\nCurrent user request:\n${request}\n\n` +
-        `Conversation summary (reference only):\n${JSON.stringify(summary)}\n\n` +
-        `Full transcript: ${transcript}`,
+        `Conversation summary (reference only):\n${JSON.stringify(summary)}`,
     };
   }
 
-  async compactHistory(
-    messages: ChatMessage[],
-    activeRequest: string,
-  ): Promise<ChatMessage[]> {
-    const transcript = this.writeTranscript(messages);
-    log.info("transcript saved", { path: transcript });
+  async compactHistory(messages: ChatMessage[], activeRequest: string): Promise<ChatMessage[]> {
     const summary = await this.summarizeHistory(messages);
-    return [
-      ContextCompactor.summaryMessage("Compacted", activeRequest, summary, transcript),
-    ];
+    return [ContextCompactor.summaryMessage("Compacted", activeRequest, summary)];
   }
 
   /** API 拒绝后的补救：留档全量，摘要旧历史，保留最近 KEEP_RECENT_MESSAGES 条 */
@@ -320,8 +283,6 @@ export class ContextCompactor {
     messages: ChatMessage[],
     activeRequest: string,
   ): Promise<ChatMessage[]> {
-    const transcript = this.writeTranscript(messages);
-    log.info("transcript saved", { path: transcript });
     const fallback: ChatMessage = { role: "user", content: null };
     let tailStart = Math.max(
       0,
@@ -342,7 +303,6 @@ export class ContextCompactor {
       "Reactive compact",
       activeRequest,
       summary,
-      transcript,
     );
     return tailStart ? [message, ...messages.slice(tailStart)] : [message];
   }

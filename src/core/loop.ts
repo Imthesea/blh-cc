@@ -66,11 +66,14 @@ export async function agentLoop(
       throw error;
     }
     messages.push(message);
+    harness.sessionStore?.append(message);
     const toolCalls: ToolCall[] = message.tool_calls ?? [];
     if (toolCalls.length === 0) {
       const decision = await evaluateGoalStop(harness, messages);
       if (decision !== null && decision.action === "block") {
-        messages.push({ role: "user", content: goalReminder(harness.goal, decision) });
+        const reminder: ChatMessage = { role: "user", content: goalReminder(harness.goal, decision) };
+        messages.push(reminder);
+        harness.sessionStore?.append(reminder);
         continue;
       }
       return;
@@ -113,7 +116,9 @@ export async function agentLoop(
         }
         if (name === "todo_write") usedTodo = true;
       }
-      messages.push({ role: "tool", tool_call_id: call.id, content: result });
+      const toolMessage: ChatMessage = { role: "tool", tool_call_id: call.id, content: result };
+      messages.push(toolMessage);
+      harness.sessionStore?.append(toolMessage);
     }
 
     const todoManager = harness.todoManager;

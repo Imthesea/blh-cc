@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { agentLoop, lastAssistantText, parseToolArguments } from "../../src/core/loop.js";
@@ -17,6 +17,7 @@ import { BackgroundManager } from "../../src/jobs/background.js";
 import { CronScheduler } from "../../src/jobs/cron.js";
 import { JobsRuntime } from "../../src/jobs/runtime.js";
 import { GoalController } from "../../src/goals/controller.js";
+import { SessionStore } from "../../src/session/store.js";
 import type { GoalEvaluator } from "../../src/goals/evaluator.js";
 import type { GoalEvaluation } from "../../src/goals/types.js";
 
@@ -201,7 +202,6 @@ class FakePromptTooLong extends Error {
 function makeCompactor(tmpDir: string, provider?: ChatProvider): ContextCompactor {
   return new ContextCompactor({
     provider: provider ?? new MockProvider([]),
-    transcriptDir: path.join(tmpDir, ".transcripts"),
     toolResultsDir: path.join(tmpDir, ".task_outputs", "tool-results"),
   });
 }
@@ -326,15 +326,43 @@ describe("agentLoop 压缩集成", () => {
       "Current user request:\nnote then compact",
     );
     expect(messages[1]?.content).toContain("conversation summary");
-    const transcripts = readdirSync(path.join(tmpDir, ".transcripts")).filter((f) =>
-      f.endsWith(".jsonl"),
-    );
-    expect(transcripts.length).toBeGreaterThan(0);
+    expect(messages[1]?.content).not.toContain("Full transcript:");
+    expect(existsSync(path.join(tmpDir, ".transcripts"))).toBe(false);
   });
 
   it("systemPrompt 包含压缩消息防护指引", () => {
     const harness = makeHarness([]);
     expect(harness.systemPrompt).toContain("Conversation summary");
+  });
+
+  it("runTurn 把 user/assistant/tool 追加到 sessionStore", async () => {
+    const store = SessionStore.create(tmpDir);
+    const harness = makeHarness([
+      makeToolCallMessage("echo", { text: "hi" }),
+      makeTextMessage("done"),
+    ]);
+    harness.sessionStore = store;
+    const messages = harness.newSession();
+    await harness.runTurn(messages, "go");
+    expect(SessionStore.load(store.path).map((m) => m.role)).toEqual([
+      "user",
+      "assistant",
+      "tool",
+      "assistant",
+    ]);
+  });
+
+  it("压缩（snipCompact）不向 sessionStore 追加", async () => {
+    const store = SessionStore.create(tmpDir);
+    const compactor = makeCompactor(tmpDir);
+    const harness = makeHarness([makeTextMessage("done")], { compactor });
+    harness.sessionStore = store;
+    const messages = harness.newSession();
+    for (let i = 0; i < 51; i++) messages.push({ role: "user", content: `m${i}` });
+    const before = SessionStore.load(store.path).length;
+    await harness.runTurn(messages, "trigger");
+    const after = SessionStore.load(store.path).length;
+    expect(after - before).toBe(2);
   });
 });
 

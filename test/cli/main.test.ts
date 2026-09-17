@@ -22,7 +22,6 @@ describe("buildHarness 装配", () => {
   it("compactor 与 compact 工具就位", async () => {
     const { buildHarness } = await import("../../src/cli/main.js");
     const harness = buildHarness(tmpDir);
-    expect(harness.compactor?.transcriptDir).toBe(path.join(tmpDir, ".transcripts"));
     expect(harness.compactor?.toolResultsDir).toBe(
       path.join(tmpDir, ".task_outputs", "tool-results"),
     );
@@ -141,5 +140,32 @@ describe("parseCliArgs", () => {
     const parsed = parseCliArgs(["-p", "你好，世界"]);
     expect(parsed.prompt).toBe("你好，世界");
     expect(parsed.cli).toEqual({});
+  });
+
+  it("parses --dangerously-skip-permissions flag", async () => {
+    const { parseCliArgs } = await import("../../src/cli/main.js");
+    expect(parseCliArgs([]).skipPermissions).toBeUndefined();
+    expect(parseCliArgs(["--dangerously-skip-permissions"]).skipPermissions).toBe(true);
+  });
+
+  it("parses --continue with no value (restore latest)", async () => {
+    const { parseCliArgs } = await import("../../src/cli/main.js");
+    const parsed = parseCliArgs(["--continue"]);
+    expect(parsed.continue).toBe(true);
+    expect(parsed.continueFile).toBeUndefined();
+  });
+
+  it("parses --continue <file>", async () => {
+    const { parseCliArgs } = await import("../../src/cli/main.js");
+    const parsed = parseCliArgs(["--continue", "session_123.jsonl"]);
+    expect(parsed.continue).toBe(true);
+    expect(parsed.continueFile).toBe("session_123.jsonl");
+  });
+
+  it("no --continue leaves continue flags unset", async () => {
+    const { parseCliArgs } = await import("../../src/cli/main.js");
+    const parsed = parseCliArgs(["-p", "hi"]);
+    expect(parsed.continue).toBeUndefined();
+    expect(parsed.continueFile).toBeUndefined();
   });
 });

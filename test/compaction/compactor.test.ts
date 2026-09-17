@@ -30,7 +30,6 @@ class FakeProvider implements ChatProvider {
 function makeCompactor(tmpDir: string, provider?: ChatProvider): ContextCompactor {
   return new ContextCompactor({
     provider: provider ?? new FakeProvider([]),
-    transcriptDir: path.join(tmpDir, ".transcripts"),
     toolResultsDir: path.join(tmpDir, ".task_outputs", "tool-results"),
   });
 }
@@ -139,14 +138,11 @@ describe("ContextCompactor 消息判定原语", () => {
     expect(compactor.unseenToolResultPositions(messages)).toEqual(new Set([0, 2]));
   });
 
-  it("writeTranscript 逐行写 JSONL 到 transcriptDir", () => {
+  it("isArchiveMarker 仅匹配 [N messages archived]", () => {
     const compactor = makeCompactor(tmpDir);
-    const messages = [userMsg("你好"), textMsg("hi")];
-    const filePath = compactor.writeTranscript(messages);
-    const lines = readFileSync(filePath, "utf8").split("\n").filter(Boolean);
-    expect(lines).toHaveLength(2);
-    expect(lines[0]).toContain("你好");
-    expect(path.dirname(filePath)).toBe(compactor.transcriptDir);
+    expect(compactor.isArchiveMarker(userMsg("[5 messages archived]"))).toBe(true);
+    expect(compactor.isArchiveMarker(userMsg("[5 messages archived at /tmp/x]"))).toBe(false);
+    expect(compactor.isArchiveMarker(userMsg("not a marker"))).toBe(false);
   });
 
   it("saveOutput 净化 toolCallId 中的路径字符", () => {
@@ -271,7 +267,7 @@ describe("ContextCompactor 消息判定原语", () => {
     expect(compacted[compacted.length - 3]).toEqual(messages[7]);
   });
 
-  it("snipCompact 归档完整历史并可幂等", () => {
+  it("snipCompact 归档完整历史并生成纯标记（无文件）", () => {
     const compactor = makeCompactor(tmpDir);
     const messages: ChatMessage[] = [{ role: "system", content: "sys" }];
     for (let i = 0; i < 9; i++) {
@@ -279,10 +275,7 @@ describe("ContextCompactor 消息判定原语", () => {
     }
     const compacted = compactor.snipCompact([...messages], 6);
     expect(compacted).toHaveLength(6);
-    const marker = compacted[3]?.content ?? "";
-    const savedPath = marker.slice(marker.lastIndexOf(" at ") + 4, -1);
-    expect(existsSync(savedPath)).toBe(true);
-    expect(readFileSync(savedPath, "utf8").split("\n").filter(Boolean)).toHaveLength(10);
+    expect(compacted[3]?.content).toBe("[5 messages archived]");
     expect(compactor.snipCompact([...compacted], 6)).toEqual(compacted);
   });
 
@@ -434,7 +427,7 @@ describe("summarizeHistory / compactHistory / reactiveCompact", () => {
     expect(await compactor.summarizeHistory([userMsg("x")])).toBe("(empty summary)");
   });
 
-  it("compactHistory 返回单条摘要消息并留档 transcript", async () => {
+  it("compactHistory 返回单条摘要消息且不落盘 transcript", async () => {
     const provider = new FakeProvider([{ role: "assistant", content: "the summary" }]);
     const compactor = makeCompactor(tmpDir, provider);
     const messages: ChatMessage[] = [
@@ -448,16 +441,12 @@ describe("summarizeHistory / compactHistory / reactiveCompact", () => {
     expect(content.startsWith("[Compacted]")).toBe(true);
     expect(content).toContain("Current user request:\nfix the bug");
     expect(content).toContain("the summary");
-    expect(content).toContain("Full transcript:");
-    const files = readdirSync(compactor.transcriptDir).filter((f) =>
-      f.endsWith(".jsonl"),
-    );
-    expect(files).toHaveLength(1);
+    expect(content).not.toContain("Full transcript:");
+    expect(existsSync(path.join(tmpDir, ".transcripts"))).toBe(false);
   });
 
   it("reactiveCompact 只摘要旧历史，tail 原样保留", async () => {
     const compactor = makeCompactor(tmpDir);
-    compactor.writeTranscript = () => "transcript.jsonl";
     let captured: ChatMessage[] = [];
     compactor.summarizeHistory = async (passed) => {
       captured = [...passed];
@@ -478,7 +467,6 @@ describe("summarizeHistory / compactHistory / reactiveCompact", () => {
 
   it("reactiveCompact 切点落在 tool 段时回退保护配对", async () => {
     const compactor = makeCompactor(tmpDir);
-    compactor.writeTranscript = () => "transcript.jsonl";
     let captured: ChatMessage[] = [];
     compactor.summarizeHistory = async (passed) => {
       captured = [...passed];
