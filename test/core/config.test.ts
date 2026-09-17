@@ -45,7 +45,7 @@ describe("loadConfig", () => {
     expect(() => loadConfig()).toThrow("process.exit");
     expect(exitSpy).toHaveBeenCalledWith(1);
     const written = stderrSpy.mock.calls.map((call) => String(call[0])).join("");
-    expect(written).toContain("OPENAI_API_KEY is not set");
+    expect(written).toContain("没有设置 OPENAI_API_KEY");
     exitSpy.mockRestore();
     stderrSpy.mockRestore();
   });

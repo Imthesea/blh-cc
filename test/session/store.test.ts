@@ -3,7 +3,6 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { SessionStore } from "../../src/session/store.js";
-import type { ChatMessage } from "../../src/core/types.js";
 
 let tmpDir: string;
 
