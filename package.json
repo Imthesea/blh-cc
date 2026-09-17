@@ -27,6 +27,7 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
+    "build:web": "pnpm --filter @blh/web build",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "lint": "eslint .",
