@@ -76,6 +76,7 @@ export function useAgentEvents(): AgentState {
           setBusy(true);
           setStreaming("");
           setToolEvents([]);
+          setError(null);
           break;
         case "assistant_text_delta":
           setStreaming((s) => s + event.text);
@@ -109,6 +110,9 @@ export function useAgentEvents(): AgentState {
           break;
         case "error":
           setError(event.message);
+          setBusy(false);
+          setStreaming("");
+          setToolEvents([]);
           break;
       }
     });
@@ -119,7 +123,12 @@ export function useAgentEvents(): AgentState {
     const userMessage: ChatMessage = { role: "user", content: text };
     setMessages((ms) => [...ms, userMessage]);
     setError(null);
-    await sendMessage(text);
+    try {
+      await sendMessage(text);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setMessages((ms) => ms.filter((m) => m !== userMessage));
+    }
   }, []);
 
   const respond = useCallback(
@@ -127,7 +136,12 @@ export function useAgentEvents(): AgentState {
       if (approval === null) return;
       const id = approval.requestId;
       setApproval(null);
-      await respondApproval(id, decision);
+      try {
+        await respondApproval(id, decision);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+        setApproval(approval);
+      }
     },
     [approval],
   );
