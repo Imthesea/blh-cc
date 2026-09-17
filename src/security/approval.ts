@@ -11,7 +11,7 @@ export type PermissionHook = (
   args: Record<string, unknown>,
 ) => Promise<string | null>;
 
-/** scheduled turn 上下文标志（等价 Python 非主线程检测） */
+/** scheduled turn 上下文标志 */
 export const approvalContext = { scheduledTurn: false };
 
 export function makePermissionHook(
@@ -21,7 +21,6 @@ export function makePermissionHook(
   const ask: AskUser =
     askUser ??
     (async () => {
-      // M0 默认：无交互环境一律视为拒绝（REPL 接入 readline 后由任务 12 注入真实 askUser）
       return "";
     });
 

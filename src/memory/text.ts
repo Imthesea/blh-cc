@@ -38,7 +38,7 @@ export function extractJsonArray(text: string): unknown[] {
               return value;
             }
           } catch {
-            // 与蓝本一致:该位置解析失败则继续尝试下一个 "["
+            // 该位置解析失败则继续尝试下一个 "["
           }
           break;
         }
