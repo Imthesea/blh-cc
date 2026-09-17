@@ -30,7 +30,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "lint": "eslint .",
-    "dev": "tsx src/cli/main.ts"
+    "dev": "tsx src/cli/main.ts",
+    "dev:yes": "tsx src/cli/main.ts --dangerously-skip-permissions"
   },
   "dependencies": {
     "dotenv": "^16.0.0",

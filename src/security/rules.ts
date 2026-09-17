@@ -17,6 +17,11 @@ export const DEFAULT_RULES: PermissionRule[] = [
   { tool: "*", target: "*", action: "allow" },
 ];
 
+/** 跳过权限询问：仅把 bash 的默认 ask 放宽为 allow，硬拦截(deny)保持不变。 */
+export const SKIP_PERMISSIONS_RULES: PermissionRule[] = DEFAULT_RULES.map((rule) =>
+  rule.tool === "bash" && rule.action === "ask" ? { ...rule, action: "allow" } : rule,
+);
+
 export function matchRule(
   rules: PermissionRule[],
   tool: string,

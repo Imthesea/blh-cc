@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { matchRule, DEFAULT_RULES } from "../../src/security/rules.js";
+import { matchRule, DEFAULT_RULES, SKIP_PERMISSIONS_RULES } from "../../src/security/rules.js";
 
 describe("DEFAULT_RULES", () => {
   it("has exactly 6 rules", () => {
@@ -40,5 +40,20 @@ describe("matchRule", () => {
   it("mcp_tools_ask_by_default", () => {
     expect(matchRule(DEFAULT_RULES, "mcp__docs__search", "")).toBe("ask");
     expect(matchRule(DEFAULT_RULES, "connect_mcp", "")).toBe("ask");
+  });
+});
+
+describe("SKIP_PERMISSIONS_RULES", () => {
+  it("allows bash by default but keeps hard denies", () => {
+    expect(matchRule(SKIP_PERMISSIONS_RULES, "bash", "dir")).toBe("allow");
+    expect(matchRule(SKIP_PERMISSIONS_RULES, "bash", "pnpm test")).toBe("allow");
+    expect(matchRule(SKIP_PERMISSIONS_RULES, "bash", "git push --force")).toBe("deny");
+    expect(matchRule(SKIP_PERMISSIONS_RULES, "bash", "rm -rf /")).toBe("deny");
+  });
+
+  it("keeps non-bash behavior unchanged", () => {
+    expect(matchRule(SKIP_PERMISSIONS_RULES, "read_file", "x.ts")).toBe("allow");
+    expect(matchRule(SKIP_PERMISSIONS_RULES, "mcp__docs__search", "")).toBe("ask");
+    expect(matchRule(SKIP_PERMISSIONS_RULES, "connect_mcp", "")).toBe("ask");
   });
 });
