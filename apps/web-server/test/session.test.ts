@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -113,5 +113,70 @@ describe("SessionManager", () => {
     return manager.dispose(handle.id).then(() => {
       expect(manager.list()).toEqual([]);
     });
+  });
+
+  it("remove 删除当前会话后跳到剩余最新会话", () => {
+    const manager = new SessionManager(
+      fakeRunner(),
+      fakeLock(),
+      () => {},
+      new ApprovalCoordinator(() => {}),
+      makeTestSessionStore(),
+    );
+    const first = manager.create(tmpDir);
+    const second = manager.create(tmpDir); // 当前会话
+    expect(existsSync(second.file)).toBe(true);
+
+    manager.remove(tmpDir, path.basename(second.file));
+
+    expect(existsSync(second.file)).toBe(false);
+    const [cur] = manager.list();
+    expect(cur!.file).toBe(first.file);
+  });
+
+  it("remove 删除唯一会话后新建空会话", () => {
+    const manager = new SessionManager(
+      fakeRunner(),
+      fakeLock(),
+      () => {},
+      new ApprovalCoordinator(() => {}),
+      makeTestSessionStore(),
+    );
+    const handle = manager.create(tmpDir);
+    manager.remove(tmpDir, path.basename(handle.file));
+
+    expect(existsSync(handle.file)).toBe(false);
+    const [cur] = manager.list();
+    expect(cur).toBeDefined();
+    expect(cur!.file).not.toBe(handle.file);
+    expect(cur!.messages).toEqual([{ role: "system", content: "sys" }]);
+  });
+
+  it("remove 删除非当前会话不影响当前会话", () => {
+    const manager = new SessionManager(
+      fakeRunner(),
+      fakeLock(),
+      () => {},
+      new ApprovalCoordinator(() => {}),
+      makeTestSessionStore(),
+    );
+    const first = manager.create(tmpDir);
+    const second = manager.create(tmpDir); // 当前会话
+    manager.remove(tmpDir, path.basename(first.file));
+
+    expect(existsSync(first.file)).toBe(false);
+    const [cur] = manager.list();
+    expect(cur!.file).toBe(second.file);
+  });
+
+  it("remove 拒绝路径穿越", () => {
+    const manager = new SessionManager(
+      fakeRunner(),
+      fakeLock(),
+      () => {},
+      new ApprovalCoordinator(() => {}),
+      makeTestSessionStore(),
+    );
+    expect(() => manager.remove(tmpDir, "../etc/passwd")).toThrow("invalid session file");
   });
 });

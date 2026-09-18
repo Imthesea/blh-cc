@@ -84,6 +84,25 @@ export class SessionManager {
     return this.approvals.resolve(requestId, decision);
   }
 
+  /** 删除会话文件；若删除的是当前会话，则跳到剩余最新会话，无剩余时新建空会话（维持「始终有活跃会话」不变量）。 */
+  remove(workdir: string, file: string): void {
+    if (path.basename(file) !== file || file === "." || file === "..") {
+      throw new Error(`invalid session file: ${file}`);
+    }
+    const fullPath = path.join(this.sessionStore.sessionsDir(workdir), file);
+    this.sessionStore.remove(fullPath);
+    if (this.current !== undefined && this.current.file === fullPath) {
+      this.current = undefined;
+      const next = this.sessionStore.latest(workdir);
+      if (next !== null) {
+        this.resume(workdir, path.basename(next));
+      } else {
+        this.create(workdir);
+      }
+    }
+    log.debug("session removed", { file: fullPath });
+  }
+
   dispose(id: string): Promise<void> {
     if (this.current !== undefined && this.current.id === id) this.current = undefined;
     return Promise.resolve();
