@@ -256,13 +256,29 @@ button, input, select, textarea { font-family: inherit; }
   height: 32px;
   border-radius: 8px;
   padding: 0 8px;
-  cursor: pointer;
   user-select: none;
   color: var(--dsw-alias-label-primary);
 }
 .session-row:hover,
 .session-row.selected,
 .session-row.menu-open { background: var(--dsw-alias-interactive-bg-hover); }
+
+.session-row-main {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.session-row-main:disabled { cursor: default; }
 
 .session-title {
   flex: 1;

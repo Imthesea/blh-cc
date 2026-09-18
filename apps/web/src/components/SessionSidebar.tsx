@@ -26,11 +26,6 @@ function SessionRow(props: {
   const [menuOpen, setMenuOpen] = useState(false);
   const anchorRef = useRef<HTMLDivElement>(null);
 
-  const open = () => {
-    if (disabled) return;
-    onOpen();
-  };
-
   useEffect(() => {
     if (!menuOpen) return;
     function onDocClick(e: MouseEvent) {
@@ -43,56 +38,45 @@ function SessionRow(props: {
   }, [menuOpen]);
 
   return (
-    <li>
-      <div
-        role="button"
-        tabIndex={disabled ? -1 : 0}
-        aria-disabled={disabled}
-        className={`session-row${active ? " selected" : ""}${menuOpen ? " menu-open" : ""}`}
-        onClick={open}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === " ") {
-            e.preventDefault();
-            open();
-          }
-        }}
+    <li className={`session-row${active ? " selected" : ""}${menuOpen ? " menu-open" : ""}`}>
+      <button
+        type="button"
+        className="session-row-main"
+        disabled={disabled}
+        onClick={onOpen}
       >
         <span className="session-title">{session.preview !== "" ? session.preview : session.file}</span>
         <span className="session-time">{timeLabel(session.mtime)}</span>
-        <span className="session-actions">
-          <div className="menu-anchor" ref={anchorRef}>
-            <button
-              type="button"
-              className="icon-button"
-              aria-label="会话操作"
-              disabled={disabled}
-              onClick={(e) => {
-                e.stopPropagation();
-                setMenuOpen((v) => !v);
-              }}
-            >
-              <IconEllipsis size={16} />
-            </button>
-            {menuOpen && (
-              <div className="menu-list" role="menu">
-                <button
-                  type="button"
-                  className="menu-item danger"
-                  role="menuitem"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setMenuOpen(false);
-                    onDelete();
-                  }}
-                >
-                  <span className="menu-item-icon"><IconTrash size={16} /></span>
-                  <span>删除会话</span>
-                </button>
-              </div>
-            )}
-          </div>
-        </span>
-      </div>
+      </button>
+      <span className="session-actions">
+        <div className="menu-anchor" ref={anchorRef}>
+          <button
+            type="button"
+            className="icon-button"
+            aria-label="会话操作"
+            disabled={disabled}
+            onClick={() => setMenuOpen((v) => !v)}
+          >
+            <IconEllipsis size={16} />
+          </button>
+          {menuOpen && (
+            <div className="menu-list" role="menu">
+              <button
+                type="button"
+                className="menu-item danger"
+                role="menuitem"
+                onClick={() => {
+                  setMenuOpen(false);
+                  onDelete();
+                }}
+              >
+                <span className="menu-item-icon"><IconTrash size={16} /></span>
+                <span>删除会话</span>
+              </button>
+            </div>
+          )}
+        </div>
+      </span>
     </li>
   );
 }
