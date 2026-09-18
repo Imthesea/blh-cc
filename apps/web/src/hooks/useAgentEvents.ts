@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   connectEvents,
+  deleteSession as deleteSessionApi,
   getSession,
   listSessions,
   newSession,
@@ -65,6 +66,7 @@ export interface AgentState {
   respond(decision: ApprovalDecision): Promise<void>;
   createSession(): Promise<void>;
   resume(file: string): Promise<void>;
+  deleteSession(file: string): Promise<void>;
 }
 
 export function useAgentEvents(): AgentState {
@@ -250,6 +252,22 @@ export function useAgentEvents(): AgentState {
     [refresh],
   );
 
+  const deleteSession = useCallback(
+    async (file: string) => {
+      setSessionLoading(true);
+      try {
+        await deleteSessionApi(file);
+        await refresh();
+      } catch (e) {
+        setError(e instanceof Error ? `删除会话失败：${e.message}` : "删除会话失败");
+        log.error("delete session failed", {}, e);
+      } finally {
+        setSessionLoading(false);
+      }
+    },
+    [refresh],
+  );
+
   return {
     messages,
     toolEvents,
@@ -265,5 +283,6 @@ export function useAgentEvents(): AgentState {
     respond,
     createSession,
     resume,
+    deleteSession,
   };
 }

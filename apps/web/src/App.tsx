@@ -19,6 +19,7 @@ export function App() {
         onToggle={() => setCollapsed((c) => !c)}
         onNew={() => void state.createSession()}
         onResume={(file) => void state.resume(file)}
+        onDelete={(file) => void state.deleteSession(file)}
       />
       <main className="main">
         <ChatPanel
