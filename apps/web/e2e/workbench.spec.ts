@@ -4,9 +4,9 @@ test.beforeEach(async ({ request }) => {
   await request.post("http://127.0.0.1:8123/api/__reset");
 });
 
-test("工作台加载并显示标题", async ({ page }) => {
+test("工作台加载并显示品牌标识", async ({ page }) => {
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: "blh 工作台" })).toBeVisible();
+  await expect(page.getByText("blh", { exact: true })).toBeVisible();
 });
 
 test("发送消息后展示流式回复", async ({ page }) => {
@@ -46,4 +46,19 @@ test("审批等待时输入禁用", async ({ page }) => {
   await page.getByRole("button", { name: "发送" }).click();
   await expect(page.getByRole("dialog")).toBeVisible();
   await expect(page.getByPlaceholder("输入消息…")).toBeDisabled();
+});
+
+test("折叠侧边栏", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "折叠侧边栏" }).click();
+  await expect(page.getByRole("button", { name: "展开侧边栏" })).toBeVisible();
+});
+
+test("悬停会话显示三点并可删除", async ({ page }) => {
+  await page.goto("/");
+  const row = page.getByText("历史会话");
+  await row.hover();
+  await page.getByRole("button", { name: "会话操作", exact: true }).click();
+  await page.getByRole("menuitem", { name: "删除会话" }).click();
+  await expect(page.getByText("历史会话")).toHaveCount(0);
 });

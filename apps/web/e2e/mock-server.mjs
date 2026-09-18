@@ -3,6 +3,9 @@ import http from "node:http";
 const clients = new Set();
 const messages = [];
 const history = [];
+const sessions = [
+  { file: "session_1.jsonl", mtime: Date.now(), preview: "历史会话" },
+];
 
 function sse(res) {
   res.writeHead(200, {
@@ -58,7 +61,7 @@ const server = http.createServer(async (req, res) => {
   }
   if (method === "GET" && pathname === "/api/sessions") {
     res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ sessions: [] }));
+    res.end(JSON.stringify({ sessions }));
     return;
   }
   if (method === "POST" && pathname === "/api/message") {
@@ -104,9 +107,19 @@ const server = http.createServer(async (req, res) => {
     broadcast("turn_end");
     return;
   }
+  if (method === "POST" && pathname === "/api/session/delete") {
+    const body = await readJson(req);
+    const file = (body.file ?? "").toString();
+    const idx = sessions.findIndex((s) => s.file === file);
+    if (idx >= 0) sessions.splice(idx, 1);
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ ok: true }));
+    return;
+  }
   if (method === "POST" && pathname === "/api/__reset") {
     messages.length = 0;
     history.length = 0;
+    sessions.splice(0, sessions.length, { file: "session_1.jsonl", mtime: Date.now(), preview: "历史会话" });
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ ok: true }));
     return;
