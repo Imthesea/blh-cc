@@ -53,6 +53,8 @@ export interface SessionStoreModule {
   create(workdir: string): SessionStoreLike;
   open(filePath: string): SessionStoreLike;
   load(filePath: string): ChatMessage[];
+  remove(filePath: string): void;
+  latest(workdir: string): string | null;
 }
 
 export type AgentEventListener = (event: AgentEvent) => void;

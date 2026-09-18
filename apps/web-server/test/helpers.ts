@@ -1,4 +1,4 @@
-import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import * as path from "node:path";
 import type { ChatMessage, SessionStoreLike, SessionStoreModule } from "../src/types.js";
 
@@ -45,6 +45,24 @@ export function makeTestSessionStore(): SessionStoreModule {
         }
       }
       return messages;
+    },
+    remove(filePath) {
+      rmSync(filePath, { force: true });
+    },
+    latest(workdir) {
+      const dir = sessionsDir(workdir);
+      let latestPath: string | null = null;
+      let latestMtime = 0;
+      for (const name of readdirSync(dir)) {
+        if (!name.endsWith(".jsonl")) continue;
+        const p = path.join(dir, name);
+        const mtime = statSync(p).mtimeMs;
+        if (mtime > latestMtime) {
+          latestMtime = mtime;
+          latestPath = p;
+        }
+      }
+      return latestPath;
     },
   };
 }
