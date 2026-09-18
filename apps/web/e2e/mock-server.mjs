@@ -2,6 +2,7 @@ import http from "node:http";
 
 const clients = new Set();
 const messages = [];
+const history = [];
 
 function sse(res) {
   res.writeHead(200, {
@@ -10,6 +11,8 @@ function sse(res) {
     Connection: "keep-alive",
   });
   res.write(": connected\n\n");
+  // 回放最近事件，避免连接建立前广播的事件因 SSE 无重放而丢失
+  for (const ev of history) res.write(frame(ev.type, ev.data));
   clients.add(res);
   res.on("close", () => clients.delete(res));
 }
@@ -19,6 +22,8 @@ function frame(type, data = {}) {
 }
 
 function broadcast(type, data) {
+  history.push({ type, data });
+  if (history.length > 100) history.shift();
   const f = frame(type, data);
   for (const c of clients) c.write(f);
 }

@@ -15,7 +15,7 @@ export default defineConfig({
     {
       command: "node e2e/mock-server.mjs",
       url: "http://127.0.0.1:8123/api/session",
-      reuseExistingServer: true,
+      reuseExistingServer: false,
     },
   ],
 });

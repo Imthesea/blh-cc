@@ -13,3 +13,5 @@ dist/
 .worktrees/
 .sessions/
 .superpowers/
+test-results/
+playwright-report/
