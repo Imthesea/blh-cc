@@ -179,6 +179,7 @@ async function handleApi(
       return;
     }
     ctx.session.runTurn(handle.id, text).catch((error: unknown) => {
+      log.error("run turn failed", { id: handle.id }, error);
       ctx.broadcaster.broadcast({
         type: "error",
         message: error instanceof Error ? error.message : String(error),

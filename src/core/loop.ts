@@ -107,7 +107,7 @@ export async function agentLoop(
     let usedTodo = false;
     for (const call of toolCalls) {
       const name = call.function.name;
-      log.info("tool call", { tool: name });
+      log.debug("tool call", { tool: name });
       const input = parseToolArguments(call.function.arguments);
       await events?.emit({ type: "tool_call", id: call.id, name, arguments: call.function.arguments });
       let result: string;

@@ -61,11 +61,19 @@ export function useAgentEvents(): AgentState {
 
   /** 从服务器取回权威消息与工作目录，并刷新会话列表。 */
   const refresh = useCallback(async () => {
-    const info = await getSession();
-    setSessionId(info.sessionId);
-    setWorkdir(info.workdir);
-    setMessages(info.messages);
-    void listSessions().then(setSessions);
+    try {
+      const info = await getSession();
+      setSessionId(info.sessionId);
+      setWorkdir(info.workdir);
+      setMessages(info.messages);
+      void listSessions()
+        .then(setSessions)
+        .catch((e: unknown) => {
+          log.error("list sessions failed", {}, e);
+        });
+    } catch (e) {
+      log.error("refresh failed", {}, e);
+    }
   }, []);
 
   useEffect(() => {
@@ -153,14 +161,22 @@ export function useAgentEvents(): AgentState {
   );
 
   const createSession = useCallback(async () => {
-    await newSession();
-    await refresh();
+    try {
+      await newSession();
+      await refresh();
+    } catch (e) {
+      log.error("create session failed", {}, e);
+    }
   }, [refresh]);
 
   const resume = useCallback(
     async (file: string) => {
-      await resumeSession(file);
-      await refresh();
+      try {
+        await resumeSession(file);
+        await refresh();
+      } catch (e) {
+        log.error("resume session failed", {}, e);
+      }
     },
     [refresh],
   );

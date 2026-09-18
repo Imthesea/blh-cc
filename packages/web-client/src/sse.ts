@@ -27,5 +27,8 @@ export function connectEvents(url: string, onEvent: (event: WebEvent) => void): 
       }
     });
   }
+  es.onerror = () => {
+    log.warn("SSE connection error", { readyState: es.readyState });
+  };
   return () => es.close();
 }

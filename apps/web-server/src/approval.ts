@@ -62,6 +62,7 @@ export class ApprovalCoordinator {
     return new Promise<ApprovalDecision>((resolve) => {
       const timer = setTimeout(() => {
         this.pending.delete(requestId);
+        log.warn("approval timed out, auto-denied", { requestId });
         resolve("deny");
       }, 5 * 60 * 1000);
       timer.unref();
