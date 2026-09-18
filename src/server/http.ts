@@ -21,6 +21,9 @@ const CONTENT_TYPES: Record<string, string> = {
   ".json": "application/json; charset=utf-8",
 };
 
+/** 自定义请求头：阻止跨站（CSRF）简单请求触发状态变更。 */
+const CSRF_HEADER = "x-blh-web";
+
 export interface WebContext {
   session: SessionManager;
   broadcaster: SSEBroadcaster;
@@ -112,6 +115,10 @@ async function handleApi(
   method: string,
   pathname: string,
 ): Promise<void> {
+  if (method !== "GET" && method !== "HEAD" && req.headers[CSRF_HEADER] !== "1") {
+    json(res, 403, { error: "forbidden" });
+    return;
+  }
   if (method === "GET" && pathname === "/api/session") {
     const handle = ctx.session.list()[0];
     if (handle === undefined) {

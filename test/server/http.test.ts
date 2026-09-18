@@ -61,7 +61,7 @@ describe("http 路由", () => {
     servers.push(server);
     const res = await fetch(`${url}/api/message`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "x-blh-web": "1" },
       body: JSON.stringify({ text: "hi" }),
     });
     expect(res.status).toBe(202);
@@ -72,12 +72,23 @@ describe("http 路由", () => {
     expect(s.messages.map((m: { content: string | null }) => m.content)).toContain("reply:hi");
   });
 
-  it("POST /api/message 空文本返回 400", async () => {
+  it("POST /api/message 缺少 CSRF 头返回 403", async () => {
     const { server, url } = await listen(makeContext(tmpDir));
     servers.push(server);
     const res = await fetch(`${url}/api/message`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: "hi" }),
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it("POST /api/message 空文本返回 400", async () => {
+    const { server, url } = await listen(makeContext(tmpDir));
+    servers.push(server);
+    const res = await fetch(`${url}/api/message`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-blh-web": "1" },
       body: JSON.stringify({ text: "" }),
     });
     expect(res.status).toBe(400);
@@ -88,7 +99,7 @@ describe("http 路由", () => {
     servers.push(server);
     const res = await fetch(`${url}/api/approval`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "x-blh-web": "1" },
       body: JSON.stringify({ requestId: "x", decision: "maybe" }),
     });
     expect(res.status).toBe(400);
@@ -99,7 +110,7 @@ describe("http 路由", () => {
     servers.push(server);
     const res = await fetch(`${url}/api/approval`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "x-blh-web": "1" },
       body: JSON.stringify({ requestId: "nope", decision: "allow" }),
     });
     expect(res.status).toBe(404);
@@ -142,7 +153,7 @@ describe("http 路由", () => {
     servers.push(server);
     const res = await fetch(`${url}/api/message`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "x-blh-web": "1" },
       body: "{not json",
     });
     expect(res.status).toBe(400);
@@ -153,7 +164,7 @@ describe("http 路由", () => {
     servers.push(server);
     const res = await fetch(`${url}/api/session/resume`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "x-blh-web": "1" },
       body: JSON.stringify({ file: ".." }),
     });
     expect(res.status).toBe(400);

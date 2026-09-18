@@ -1,7 +1,9 @@
 import type { ApprovalDecision, ChatMessage, SessionInfo, SessionListItem } from "./types.js";
 
 async function request<T = unknown>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(path, init);
+  const headers = new Headers(init?.headers);
+  headers.set("x-blh-web", "1");
+  const res = await fetch(path, { ...init, headers });
   if (!res.ok) {
     const body = (await res.json().catch(() => null)) as { error?: string } | null;
     throw new Error(body?.error ?? `HTTP ${res.status}`);
