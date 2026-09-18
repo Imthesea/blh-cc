@@ -78,6 +78,10 @@ importers:
         version: 6.4.3(@types/node@20.19.43)(tsx@4.23.13)(yaml@2.9.1)
 
   apps/web-server:
+    dependencies:
+      '@blh/logger':
+        specifier: workspace:*
+        version: link:../../packages/logger
     devDependencies:
       '@types/node':
         specifier: ^20.0.0
