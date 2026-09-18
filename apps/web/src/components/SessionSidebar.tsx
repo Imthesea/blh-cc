@@ -18,12 +18,18 @@ function timeLabel(mtime: number): string {
 function SessionRow(props: {
   session: SessionListItem;
   active: boolean;
+  disabled: boolean;
   onOpen(): void;
   onDelete(): void;
 }) {
-  const { session, active, onOpen, onDelete } = props;
+  const { session, active, disabled, onOpen, onDelete } = props;
   const [menuOpen, setMenuOpen] = useState(false);
   const anchorRef = useRef<HTMLDivElement>(null);
+
+  const open = () => {
+    if (disabled) return;
+    onOpen();
+  };
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -39,8 +45,17 @@ function SessionRow(props: {
   return (
     <li>
       <div
+        role="button"
+        tabIndex={disabled ? -1 : 0}
+        aria-disabled={disabled}
         className={`session-row${active ? " selected" : ""}${menuOpen ? " menu-open" : ""}`}
-        onClick={onOpen}
+        onClick={open}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            open();
+          }
+        }}
       >
         <span className="session-title">{session.preview !== "" ? session.preview : session.file}</span>
         <span className="session-time">{timeLabel(session.mtime)}</span>
@@ -50,6 +65,7 @@ function SessionRow(props: {
               type="button"
               className="icon-button"
               aria-label="会话操作"
+              disabled={disabled}
               onClick={(e) => {
                 e.stopPropagation();
                 setMenuOpen((v) => !v);
@@ -126,6 +142,7 @@ export function SessionSidebar(props: {
                 key={s.file}
                 session={s}
                 active={s.file === activeId}
+                disabled={loading}
                 onOpen={() => onResume(s.file)}
                 onDelete={() => onDelete(s.file)}
               />
