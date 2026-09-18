@@ -3,6 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createLogger, initLogger, resetLogger } from "../src/node.js";
+import { fileDate } from "../src/format.js";
 
 let tmpDir: string;
 
@@ -22,7 +23,7 @@ describe("node logger", () => {
     initLogger(tmpDir, "info");
     const log = createLogger("providers.openai");
     log.info("chat request", { model: "m" });
-    const file = path.join(tmpDir, ".blh", "logs", "blh-2026-09-18.log");
+    const file = path.join(tmpDir, ".blh", "logs", `blh-${fileDate(new Date())}.log`);
     expect(existsSync(file)).toBe(true);
     expect(readFileSync(file, "utf8")).toContain("chat request");
   });
@@ -40,7 +41,7 @@ describe("node logger", () => {
     const log = createLogger("x");
     log.debug("hidden");
     log.info("shown");
-    const file = path.join(tmpDir, ".blh", "logs", "blh-2026-09-18.log");
+    const file = path.join(tmpDir, ".blh", "logs", `blh-${fileDate(new Date())}.log`);
     const content = readFileSync(file, "utf8");
     expect(content).toContain("shown");
     expect(content).not.toContain("hidden");
@@ -57,7 +58,7 @@ describe("node logger", () => {
     initLogger(tmpDir, "error");
     const log = createLogger("x");
     log.error("failed", {}, new Error("boom"));
-    const file = path.join(tmpDir, ".blh", "logs", "blh-2026-09-18.log");
+    const file = path.join(tmpDir, ".blh", "logs", `blh-${fileDate(new Date())}.log`);
     const content = readFileSync(file, "utf8");
     expect(content).toContain("failed: boom");
     expect(content).toContain("stack");
