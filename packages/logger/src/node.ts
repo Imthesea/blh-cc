@@ -27,10 +27,18 @@ export function resetLogger(): void {
   logDir = null;
 }
 
-export function appendRawEntry(entry: LogEntry): void {
+function writeEntryToFile(entry: LogEntry): void {
   if (logDir === null) return;
-  const filePath = path.join(logDir, `blh-${fileDate(entry.time)}.log`);
-  appendFileSync(filePath, formatFile(entry), "utf8");
+  try {
+    const filePath = path.join(logDir, `blh-${fileDate(entry.time)}.log`);
+    appendFileSync(filePath, formatFile(entry), "utf8");
+  } catch {
+    // 写文件失败降级：静默忽略，避免日志写入本身成为崩溃源
+  }
+}
+
+export function appendRawEntry(entry: LogEntry): void {
+  writeEntryToFile(entry);
 }
 
 function terminalSink(): LogSink {
@@ -38,13 +46,7 @@ function terminalSink(): LogSink {
 }
 
 function fileSink(): LogSink {
-  return {
-    write: (entry) => {
-      if (logDir === null) return;
-      const filePath = path.join(logDir, `blh-${fileDate(entry.time)}.log`);
-      appendFileSync(filePath, formatFile(entry), "utf8");
-    },
-  };
+  return { write: writeEntryToFile };
 }
 
 export function createLogger(name: string): Logger {

@@ -34,3 +34,26 @@ describe("formatFile", () => {
     expect(parsed.time).toBe("2026-09-18T08:03:22.000Z");
   });
 });
+
+it("循环引用字段不抛错", () => {
+  const circular: Record<string, unknown> = {};
+  circular.self = circular;
+  expect(() =>
+    formatTerminal({
+      time: new Date("2026-09-18T08:03:22.000Z"),
+      level: "info",
+      module: "x",
+      message: "m",
+      fields: { circular },
+    }),
+  ).not.toThrow();
+  expect(() =>
+    formatFile({
+      time: new Date("2026-09-18T08:03:22.000Z"),
+      level: "info",
+      module: "x",
+      message: "m",
+      fields: { circular },
+    }),
+  ).not.toThrow();
+});

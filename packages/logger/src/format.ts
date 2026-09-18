@@ -19,11 +19,19 @@ export function fileDate(date: Date): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 
+function safeStringify(value: unknown): string {
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return "[unserializable]";
+  }
+}
+
 function formatFields(fields: LogFields): string {
   return Object.entries(fields)
     .map(([key, value]) => {
       const text =
-        typeof value === "object" && value !== null ? JSON.stringify(value) : String(value);
+        typeof value === "object" && value !== null ? safeStringify(value) : String(value);
       return `${key}=${text}`;
     })
     .join(" ");
@@ -36,15 +44,19 @@ export function formatTerminal(entry: LogEntry): string {
 }
 
 export function formatFile(entry: LogEntry): string {
-  return (
-    JSON.stringify({
-      time: entry.time.toISOString(),
-      level: entry.level,
-      module: entry.module,
-      msg: entry.message,
-      fields: entry.fields,
-    }) + "\n"
-  );
+  try {
+    return (
+      JSON.stringify({
+        time: entry.time.toISOString(),
+        level: entry.level,
+        module: entry.module,
+        msg: entry.message,
+        fields: entry.fields,
+      }) + "\n"
+    );
+  } catch {
+    return `[unserializable] ${entry.level} ${entry.module} ${entry.message}\n`;
+  }
 }
 
 export class CoreLogger implements Logger {
@@ -84,7 +96,7 @@ export class CoreLogger implements Logger {
     if (error !== undefined) {
       if (error instanceof Error) {
         finalMessage = `${message}: ${error.message}`;
-        if (error.stack !== undefined) merged.stack = error.stack;
+        if (error.stack !== undefined) merged.stack ??= error.stack;
       } else {
         finalMessage = `${message}: ${String(error)}`;
       }

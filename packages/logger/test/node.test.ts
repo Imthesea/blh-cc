@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -62,5 +62,16 @@ describe("node logger", () => {
     const content = readFileSync(file, "utf8");
     expect(content).toContain("failed: boom");
     expect(content).toContain("stack");
+  });
+
+  it("写文件失败时不抛错", () => {
+    initLogger(tmpDir, "info");
+    // 把目标日志文件占位成目录，使 appendFileSync 抛出 EISDIR
+    const file = path.join(tmpDir, ".blh", "logs", `blh-${fileDate(new Date())}.log`);
+    mkdirSync(file, { recursive: true });
+    const write = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const log = createLogger("x");
+    expect(() => log.info("hello")).not.toThrow();
+    expect(write).toHaveBeenCalled();
   });
 });
