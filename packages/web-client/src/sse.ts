@@ -1,4 +1,7 @@
 import type { WebEvent } from "./types.js";
+import { createLogger } from "@blh/logger";
+
+const log = createLogger("web-client.sse");
 
 const EVENT_TYPES = [
   "turn_start",
@@ -19,6 +22,7 @@ export function connectEvents(url: string, onEvent: (event: WebEvent) => void): 
         const data = JSON.parse((e as MessageEvent).data) as Record<string, unknown>;
         onEvent({ type, ...data } as WebEvent);
       } catch {
+        log.warn("bad SSE payload", { type });
         onEvent({ type: "error", message: `bad SSE payload for ${type}` });
       }
     });

@@ -1,4 +1,7 @@
 import type { ApprovalDecision, ChatMessage, SessionInfo, SessionListItem } from "./types.js";
+import { createLogger } from "@blh/logger";
+
+const log = createLogger("web-client.api");
 
 async function request<T = unknown>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
@@ -6,6 +9,7 @@ async function request<T = unknown>(path: string, init?: RequestInit): Promise<T
   const res = await fetch(path, { ...init, headers });
   if (!res.ok) {
     const body = (await res.json().catch(() => null)) as { error?: string } | null;
+    log.warn("request failed", { path, status: res.status, error: body?.error ?? null });
     throw new Error(body?.error ?? `HTTP ${res.status}`);
   }
   return res.json() as Promise<T>;

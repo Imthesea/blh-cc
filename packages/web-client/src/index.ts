@@ -1,3 +1,4 @@
 export * from "./types.js";
 export { connectEvents } from "./sse.js";
 export * from "./api.js";
+export { reportLogs } from "./log.js";

@@ -106,6 +106,10 @@ importers:
         version: 2.0.0(@types/node@20.19.43)
 
   packages/web-client:
+    dependencies:
+      '@blh/logger':
+        specifier: workspace:*
+        version: link:../logger
     devDependencies:
       typescript:
         specifier: ^5.5.0

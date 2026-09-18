@@ -8,7 +8,10 @@
     "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": true,
     "skipLibCheck": true,
-    "noEmit": true
+    "noEmit": true,
+    "paths": {
+      "@blh/logger": ["../logger/src/browser.ts"]
+    }
   },
   "include": ["src/**/*.ts"]
 }
