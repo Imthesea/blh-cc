@@ -21,6 +21,12 @@ export type ApprovalDecision = "allow" | "deny" | "always_allow";
 export interface ChatMessage {
   role: "system" | "user" | "assistant" | "tool";
   content: string | null;
+  /** assistant 消息携带的工具调用（来自 JSONL，用于历史折叠成思考框） */
+  tool_calls?: Array<{ id: string; type?: string; function: { name: string; arguments: string } }>;
+  /** tool 消息关联的工具调用 id */
+  tool_call_id?: string;
+  /** tool 消息的工具名 */
+  name?: string;
 }
 
 export interface SessionInfo {

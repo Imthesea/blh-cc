@@ -1,0 +1,46 @@
+import { useEffect, useState } from "react";
+import type { ThinkingStep } from "./turns";
+import { ToolCallCard } from "./ToolCallCard";
+
+export function ThinkingPanel({ steps, active }: { steps: ThinkingStep[]; active: boolean }) {
+  const [expanded, setExpanded] = useState(active);
+
+  // active 变为 true（开始思考）时展开；变为 false（最终回复生成）时收起。
+  useEffect(() => {
+    setExpanded(active);
+  }, [active]);
+
+  return (
+    <div className="thinking">
+      <button
+        type="button"
+        className="thinking-head"
+        aria-expanded={expanded}
+        onClick={() => setExpanded((e) => !e)}
+      >
+        <span className={`thinking-caret${expanded ? " thinking-caret-open" : ""}`}>{">"}</span>
+        <span className="thinking-label">{active ? "thinking" : "think"}</span>
+        {active && (
+          <span className="thinking-dots" aria-hidden="true">
+            <span>.</span>
+            <span>.</span>
+            <span>.</span>
+          </span>
+        )}
+      </button>
+      {expanded && steps.length > 0 && (
+        <div className="thinking-body">
+          {steps.map((s) =>
+            s.kind === "text" ? (
+              <div key={s.id} className="thinking-text">
+                {s.text}
+              </div>
+            ) : (
+              <ToolCallCard key={s.id} step={s} />
+            ),
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
