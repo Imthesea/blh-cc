@@ -10,6 +10,7 @@ import type { ApprovalDecision } from "./types.js";
 import type { SessionManager } from "./session.js";
 import type { SSEBroadcaster } from "./bridge.js";
 import type { SessionStoreModule } from "./types.js";
+import { appendRawEntry, createLogger, type LogLevel } from "@blh/logger";
 
 const CONTENT_TYPES: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -23,6 +24,12 @@ const CONTENT_TYPES: Record<string, string> = {
 
 /** 自定义请求头：阻止跨站（CSRF）简单请求触发状态变更。 */
 const CSRF_HEADER = "x-blh-web";
+
+const log = createLogger("web-server.http");
+
+function isLogLevel(value: unknown): value is LogLevel {
+  return value === "debug" || value === "info" || value === "warn" || value === "error";
+}
 
 export interface WebContext {
   session: SessionManager;
@@ -123,6 +130,7 @@ async function handleApi(
     json(res, 403, { error: "forbidden" });
     return;
   }
+  log.debug("request", { method, pathname });
   if (method === "GET" && pathname === "/api/session") {
     const handle = ctx.session.list()[0];
     if (handle === undefined) {
@@ -176,6 +184,31 @@ async function handleApi(
         message: error instanceof Error ? error.message : String(error),
       });
     });
+    json(res, 202, { accepted: true });
+    return;
+  }
+
+  if (method === "POST" && pathname === "/api/log") {
+    const body = (await readBody(req)) as Record<string, unknown>;
+    const entries = body.entries;
+    if (!Array.isArray(entries)) {
+      json(res, 400, { error: "entries is required" });
+      return;
+    }
+    for (const raw of entries) {
+      const e = raw as Record<string, unknown>;
+      const level = e.level;
+      if (!isLogLevel(level)) continue;
+      const message = typeof e.message === "string" ? e.message : "";
+      const module = typeof e.module === "string" ? e.module : "web";
+      const time = new Date(typeof e.time === "string" ? e.time : Date.now());
+      const fields =
+        typeof e.fields === "object" && e.fields !== null
+          ? (e.fields as Record<string, unknown>)
+          : {};
+      appendRawEntry({ time, level, module, message, fields });
+    }
+    log.debug("frontend logs received", { count: entries.length });
     json(res, 202, { accepted: true });
     return;
   }

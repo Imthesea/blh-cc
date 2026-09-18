@@ -10,6 +10,9 @@ import type {
 import type { WebEvent } from "./bridge.js";
 import type { ApprovalCoordinator } from "./approval.js";
 import { EventBus } from "./events.js";
+import { createLogger } from "@blh/logger";
+
+const log = createLogger("web-server.session");
 
 export interface SessionHandle {
   id: string;
@@ -39,6 +42,7 @@ export class SessionManager {
       messages: this.runner.newSession(),
       store,
     };
+    log.debug("session created", { file: handle.file });
     this.current = handle;
     return handle;
   }
@@ -53,6 +57,7 @@ export class SessionManager {
     const messages = this.runner.newSession();
     messages.push(...this.sessionStore.load(fullPath));
     const handle: SessionHandle = { id: file, file: fullPath, messages, store };
+    log.debug("session resumed", { file: fullPath });
     this.current = handle;
     return handle;
   }
@@ -71,6 +76,7 @@ export class SessionManager {
     const events = new EventBus();
     const off = events.subscribe((event) => this.broadcast(event));
     const run = () => this.runner.runTurn(handle.messages, text, events);
+    log.debug("run turn", { id, text });
     return this.lock.withLock(run).finally(() => off());
   }
 

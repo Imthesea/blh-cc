@@ -3,6 +3,9 @@ import * as path from "node:path";
 import type { ApprovalDecision } from "./types.js";
 import type { WebEvent } from "./bridge.js";
 import type { ApprovalRequest, PermissionRule } from "./types.js";
+import { createLogger } from "@blh/logger";
+
+const log = createLogger("web-server.approval");
 
 const RULES_FILE = "user-rules.json";
 
@@ -70,6 +73,7 @@ export class ApprovalCoordinator {
         target: req.target,
         args: req.args,
       });
+      log.debug("approval requested", { requestId, tool: req.tool });
     });
   }
 
@@ -78,6 +82,7 @@ export class ApprovalCoordinator {
     if (entry === undefined) return false;
     clearTimeout(entry.timer);
     this.pending.delete(requestId);
+    log.debug("approval resolved", { requestId, decision });
     entry.resolve(decision);
     return true;
   }

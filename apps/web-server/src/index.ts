@@ -3,6 +3,9 @@ import { SSEBroadcaster } from "./bridge.js";
 import { ApprovalCoordinator, loadUserRules, persistUserRule } from "./approval.js";
 import { SessionManager } from "./session.js";
 import type { BuildHarness, SessionStoreModule } from "./types.js";
+import { createLogger, initLogger } from "@blh/logger";
+
+const log = createLogger("web-server.index");
 
 export type { BuildHarness, SessionStoreModule } from "./types.js";
 export type { WebEvent, AgentEvent } from "./bridge.js";
@@ -26,6 +29,7 @@ export interface RunningWebServer {
 
 export async function startWebServer(options: WebServerOptions): Promise<RunningWebServer> {
   const workdir = options.workdir;
+  initLogger(workdir);
 
   const broadcaster = new SSEBroadcaster();
   const approvals = new ApprovalCoordinator((event) => broadcaster.broadcast(event));
@@ -68,12 +72,21 @@ export async function startWebServer(options: WebServerOptions): Promise<Running
     server.listen(port, "127.0.0.1", () => resolve());
   });
 
+  const url = `http://127.0.0.1:${port}`;
+  log.info("web server started", { url, workdir });
+
   return {
-    url: `http://127.0.0.1:${port}`,
+    url,
     port,
     close: () =>
       new Promise<void>((resolve, reject) => {
-        server.close((error) => (error ? reject(error) : resolve()));
+        server.close((error) => {
+          if (error) reject(error);
+          else {
+            log.info("web server closed");
+            resolve();
+          }
+        });
       }),
   };
 }
