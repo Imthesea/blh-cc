@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { Server } from "node:http";
@@ -60,9 +60,11 @@ describe("POST /api/log", () => {
       }),
     });
     expect(res.status).toBe(202);
-    const file = path.join(tmpDir, ".blh", "logs", "blh-2026-09-18.log");
-    expect(existsSync(file)).toBe(true);
-    expect(readFileSync(file, "utf8")).toContain("web.app");
+    const logsDir = path.join(tmpDir, ".blh", "logs");
+    const files = readdirSync(logsDir);
+    expect(files.length).toBeGreaterThan(0);
+    const content = readFileSync(path.join(logsDir, files[0]!), "utf8");
+    expect(content).toContain("web.app");
   });
 
   it("缺少 CSRF 头返回 403", async () => {

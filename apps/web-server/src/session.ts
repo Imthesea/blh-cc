@@ -76,7 +76,7 @@ export class SessionManager {
     const events = new EventBus();
     const off = events.subscribe((event) => this.broadcast(event));
     const run = () => this.runner.runTurn(handle.messages, text, events);
-    log.debug("run turn", { id, text });
+    log.debug("run turn", { id, textLength: text.length });
     return this.lock.withLock(run).finally(() => off());
   }
 

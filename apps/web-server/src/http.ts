@@ -189,26 +189,32 @@ async function handleApi(
   }
 
   if (method === "POST" && pathname === "/api/log") {
-    const body = (await readBody(req)) as Record<string, unknown>;
-    const entries = body.entries;
+    const rawBody = await readBody(req);
+    if (typeof rawBody !== "object" || rawBody === null) {
+      json(res, 400, { error: "entries is required" });
+      return;
+    }
+    const entries = (rawBody as Record<string, unknown>).entries;
     if (!Array.isArray(entries)) {
       json(res, 400, { error: "entries is required" });
       return;
     }
-    for (const raw of entries) {
+    const bounded = entries.slice(0, 1000);
+    for (const raw of bounded) {
       const e = raw as Record<string, unknown>;
       const level = e.level;
       if (!isLogLevel(level)) continue;
       const message = typeof e.message === "string" ? e.message : "";
       const module = typeof e.module === "string" ? e.module : "web";
-      const time = new Date(typeof e.time === "string" ? e.time : Date.now());
+      const parsed = new Date(typeof e.time === "string" ? e.time : Date.now());
+      const time = Number.isNaN(parsed.getTime()) ? new Date() : parsed;
       const fields =
         typeof e.fields === "object" && e.fields !== null
           ? (e.fields as Record<string, unknown>)
           : {};
       appendRawEntry({ time, level, module, message, fields });
     }
-    log.debug("frontend logs received", { count: entries.length });
+    log.debug("frontend logs received", { count: bounded.length });
     json(res, 202, { accepted: true });
     return;
   }
