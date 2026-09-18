@@ -29,8 +29,8 @@ export function ApprovalModal(props: {
         <pre className="modal-args">{JSON.stringify(approval.args, null, 2)}</pre>
         <div className="modal-actions">
           <button onClick={() => onRespond("deny")}>拒绝</button>
-          <button onClick={() => onRespond("allow")}>允许</button>
-          <button onClick={() => onRespond("always_allow")}>总是允许</button>
+          <button className="primary" onClick={() => onRespond("allow")}>允许</button>
+          <button className="primary" onClick={() => onRespond("always_allow")}>总是允许</button>
         </div>
       </div>
     </div>

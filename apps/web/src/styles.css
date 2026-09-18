@@ -353,6 +353,13 @@ button, input, select, textarea { font-family: inherit; }
 }
 .bubble-user .bubble-text { background: var(--dsw-alias-brand-primary); color: var(--dsw-alias-label-primary-inverted); }
 .bubble-assistant .bubble-text { background: var(--dsw-static-neutral-bluish-75); color: var(--dsw-alias-label-primary); }
+.bubble-tool .bubble-text {
+  background: var(--dsw-static-neutral-bluish-100);
+  color: var(--dsw-alias-label-secondary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 20px;
+}
 
 /* ============ tool card ============ */
 .tool-card {
