@@ -760,6 +760,35 @@ describe("agentLoop streaming events", () => {
     expect(lastAssistantText(messages)).toBe("done");
   });
 
+  it("marks denied results as error", async () => {
+    const denyTool: ToolDefinition = {
+      name: "deny",
+      description: "",
+      parameters: { type: "object" },
+      handler: async () => "denied: not allowed",
+    };
+    const provider = new StreamingProvider([
+      makeToolCallMessage("deny", {}),
+      makeTextMessage("done"),
+    ]);
+    const harness = makeHarness([], { provider, tools: [denyTool] });
+    const events: AgentEvent[] = [];
+    const bus = new EventBus();
+    bus.subscribe((e) => {
+      events.push(e);
+    });
+    const messages = harness.newSession();
+    await harness.runTurn(messages, "go", bus);
+    const toolResult = events.find((e) => e.type === "tool_result");
+    expect(toolResult).toEqual({
+      type: "tool_result",
+      id: "call_1",
+      name: "deny",
+      output: "denied: not allowed",
+      isError: true,
+    });
+  });
+
   it("falls back to non-streaming chat when provider has no stream", async () => {
     const provider = new MockProvider([
       makeToolCallMessage("echo", { text: "hi" }),

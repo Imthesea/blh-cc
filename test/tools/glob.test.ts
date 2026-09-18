@@ -27,6 +27,13 @@ describe("fnmatch", () => {
     expect(fnmatch("src/a.ts", "src/?.ts")).toBe(true);
     expect(fnmatch("src/a.ts", "src/[ab].ts")).toBe(true);
   });
+
+  it("does not throw on unclosed [", async () => {
+    const { fnmatch } = await import("../../src/tools/glob.js");
+    expect(() => fnmatch("foo[abc", "foo[abc")).not.toThrow();
+    expect(fnmatch("foo[abc", "foo[abc")).toBe(true);
+    expect(fnmatch("fooX", "foo[abc")).toBe(false);
+  });
 });
 
 describe("glob", () => {

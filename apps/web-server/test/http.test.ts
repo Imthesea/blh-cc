@@ -1,5 +1,5 @@
 import http from "node:http";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -144,6 +144,42 @@ describe("http 路由", () => {
     });
   });
 
+  it("伪造 Host 返回 403", async () => {
+    const { server, url } = await listen(makeContext(tmpDir));
+    servers.push(server);
+    const parsed = new URL(url);
+    await new Promise<void>((resolve, reject) => {
+      http
+        .get(
+          { host: parsed.hostname, port: parsed.port, path: "/api/session", headers: { Host: "evil.com" } },
+          (res) => {
+            expect(res.statusCode).toBe(403);
+            res.resume();
+            resolve();
+          },
+        )
+        .on("error", reject);
+    });
+  });
+
+  it("合法 localhost Host 正常访问", async () => {
+    const { server, url } = await listen(makeContext(tmpDir));
+    servers.push(server);
+    const parsed = new URL(url);
+    await new Promise<void>((resolve, reject) => {
+      http
+        .get(
+          { host: parsed.hostname, port: parsed.port, path: "/api/session", headers: { Host: `localhost:${parsed.port}` } },
+          (res) => {
+            expect(res.statusCode).toBe(200);
+            res.resume();
+            resolve();
+          },
+        )
+        .on("error", reject);
+    });
+  });
+
   it("GET /api/sessions/.. 拒绝路径穿越", async () => {
     const { server, url } = await listen(makeContext(tmpDir));
     servers.push(server);
@@ -171,5 +207,52 @@ describe("http 路由", () => {
       body: JSON.stringify({ file: ".." }),
     });
     expect(res.status).toBe(400);
+  });
+
+  it("GET /api/sessions/:file 成功返回消息", async () => {
+    const { server, url } = await listen(makeContext(tmpDir));
+    servers.push(server);
+    const sessionsDir = path.join(tmpDir, ".sessions");
+    mkdirSync(sessionsDir, { recursive: true });
+    writeFileSync(path.join(sessionsDir, "session_test.jsonl"), JSON.stringify({ role: "user", content: "hi" }) + "\n");
+    const res = await fetch(`${url}/api/sessions/session_test.jsonl`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { messages: Array<{ content: string | null }> };
+    expect(body.messages).toEqual([{ role: "user", content: "hi" }]);
+  });
+
+  it("GET /api/sessions/:file 不存在返回 404", async () => {
+    const { server, url } = await listen(makeContext(tmpDir));
+    servers.push(server);
+    const res = await fetch(`${url}/api/sessions/nope.jsonl`);
+    expect(res.status).toBe(404);
+  });
+
+  it("Content-Length 超限返回 413", async () => {
+    const { server, url } = await listen(makeContext(tmpDir));
+    servers.push(server);
+    const parsed = new URL(url);
+    await new Promise<void>((resolve, reject) => {
+      const req = http.request(
+        {
+          host: parsed.hostname,
+          port: parsed.port,
+          path: "/api/message",
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-blh-web": "1",
+            "Content-Length": String(1024 * 1024 + 1),
+          },
+        },
+        (res) => {
+          expect(res.statusCode).toBe(413);
+          res.resume();
+          resolve();
+        },
+      );
+      req.on("error", reject);
+      req.end(JSON.stringify({ text: "hi" }));
+    });
   });
 });

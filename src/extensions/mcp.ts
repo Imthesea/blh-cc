@@ -8,7 +8,10 @@ const PROTOCOL_VERSION = "2024-11-05";
 export class MCPClient {
   private process: ChildProcessWithoutNullStreams | null = null;
   private nextId = 1;
-  private readonly pending = new Map<number, (value: unknown) => void>();
+  private readonly pending = new Map<
+    number,
+    { resolve: (value: unknown) => void; reject: (error: Error) => void; timer: NodeJS.Timeout }
+  >();
 
   constructor(
     readonly name: string,
@@ -19,6 +22,12 @@ export class MCPClient {
 
   async start(): Promise<void> {
     this.process = spawn(this.command, this.args, { stdio: ["pipe", "pipe", "pipe"] });
+    this.process.on("error", (err) =>
+      this.failPending(err instanceof Error ? err : new Error(String(err))),
+    );
+    this.process.on("exit", (code) =>
+      this.failPending(new Error(`MCP server '${this.name}' exited with code ${code}`)),
+    );
     const rl = createInterface({ input: this.process.stdout });
     rl.on("line", (line) => {
       let msg: { id?: number; result?: unknown; error?: unknown };
@@ -28,10 +37,11 @@ export class MCPClient {
         return;
       }
       if (typeof msg.id !== "number") return; // 无 id 的通知跳过
-      const resolve = this.pending.get(msg.id);
-      if (resolve) {
+      const entry = this.pending.get(msg.id);
+      if (entry) {
         this.pending.delete(msg.id);
-        resolve(msg.error !== undefined ? { error: msg.error } : msg.result);
+        clearTimeout(entry.timer);
+        entry.resolve(msg.error !== undefined ? { error: msg.error } : msg.result);
       }
     });
     const result = await this.request("initialize", {
@@ -100,12 +110,17 @@ export class MCPClient {
         this.pending.delete(id);
         reject(new Error(`MCP request timed out after ${this.timeout}ms`));
       }, this.timeout);
-      this.pending.set(id, (value) => {
-        clearTimeout(timer);
-        resolve(value);
-      });
+      this.pending.set(id, { resolve, reject, timer });
       this.send({ jsonrpc: "2.0", id, method, params });
     });
+  }
+
+  private failPending(error: Error): void {
+    for (const entry of this.pending.values()) {
+      clearTimeout(entry.timer);
+      entry.reject(error);
+    }
+    this.pending.clear();
   }
 
   private notify(method: string, params?: unknown): void {
@@ -141,17 +156,25 @@ export class MCPRegistry {
     if (this.clients.has(name)) return `MCP server '${name}' already connected`;
     const safeServer = normalizeMcpName(name);
     const client = new MCPClient(name, command, args);
+    const registered: string[] = [];
     try {
       await client.start();
       const tools = await client.listTools();
-      const registered: string[] = [];
       for (const toolDef of tools) {
         const rawName = String(toolDef.name ?? "");
         if (!rawName) continue;
         const safeTool = normalizeMcpName(rawName);
         const prefixed = `mcp__${safeServer}__${safeTool}`;
-        if (prefixed.length > 64) return `Error: MCP tool name too long: ${prefixed}`;
-        if (this.origins.has(prefixed)) return `Error: MCP tool name collision: ${prefixed}`;
+        if (prefixed.length > 64) {
+          this.rollback(registered);
+          await client.close();
+          return `Error: MCP tool name too long: ${prefixed}`;
+        }
+        if (this.origins.has(prefixed)) {
+          this.rollback(registered);
+          await client.close();
+          return `Error: MCP tool name collision: ${prefixed}`;
+        }
         const schema = toolDef.inputSchema;
         const parameters: ToolParameters =
           schema && typeof schema === "object" && (schema as { type?: string }).type === "object"
@@ -169,9 +192,17 @@ export class MCPRegistry {
       this.clients.set(name, client);
       return `Connected to MCP server '${name}'. Discovered ${registered.length} tools: ${registered.join(", ") || "none"}`;
     } catch (error) {
+      this.rollback(registered);
       await client.close();
       const message = error instanceof Error ? error.message : String(error);
       return `Error: failed to connect MCP server '${name}': ${message}`;
+    }
+  }
+
+  private rollback(registered: string[]): void {
+    for (const name of registered) {
+      this.registry.unregister(name);
+      this.origins.delete(name);
     }
   }
 

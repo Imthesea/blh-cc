@@ -14,7 +14,7 @@ export type WebEvent =
       target: string;
       args: Record<string, unknown>;
     }
-  | { type: "error"; message: string };
+  | { type: "agent_error"; message: string };
 
 export type ApprovalDecision = "allow" | "deny" | "always_allow";
 

@@ -6,26 +6,14 @@ import { isPromptTooLong } from "../providers/openai.js";
 import type { GoalController } from "../goals/controller.js";
 import type { StopDecision } from "../goals/types.js";
 import { createLogger } from "@blh/logger";
+import { parseToolArguments } from "./parse-args.js";
 
 const log = createLogger("core.loop");
 
+export { parseToolArguments };
+
 /** 提示词过长时，允许「被动压缩后重试」的最大次数 */
 const MAX_REACTIVE_RETRIES = 1;
-
-/** 判断一个值是不是普通对象（排除 null 和数组），用于校验解析出的 JSON */
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-/** 解析 tool_call 的 JSON arguments：非法 JSON 或非对象一律返回 {} */
-export function parseToolArguments(raw: string): Record<string, unknown> {
-  try {
-    const parsed: unknown = JSON.parse(raw);
-    return isRecord(parsed) ? parsed : {};
-  } catch {
-    return {};
-  }
-}
 
 /** 从后往前找最后一条 assistant 消息，返回它的文本内容；没有则返回空串 */
 export function lastAssistantText(messages: ChatMessage[]): string {
@@ -141,7 +129,13 @@ export async function agentLoop(
         }
         if (name === "todo_write") usedTodo = true;
       }
-      await events?.emit({ type: "tool_result", id: call.id, name, output: result, isError: result.startsWith("error:") });
+      await events?.emit({
+        type: "tool_result",
+        id: call.id,
+        name,
+        output: result,
+        isError: result.startsWith("error:") || result.startsWith("denied"),
+      });
       const toolMessage: ChatMessage = { role: "tool", tool_call_id: call.id, content: result };
       messages.push(toolMessage);
       harness.sessionStore?.append(toolMessage);

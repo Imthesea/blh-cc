@@ -46,9 +46,9 @@ describe("SSEBroadcaster", () => {
 
   it("跳过已销毁的连接，不中断其它客户端广播", () => {
     const broadcaster = new SSEBroadcaster();
-    const healthyWrite = vi.fn();
+    const healthyWrite = vi.fn(() => true);
     const healthy = { writeHead: vi.fn(), write: healthyWrite, end: vi.fn() } as unknown as ServerResponse;
-    const deadWrite = vi.fn();
+    const deadWrite = vi.fn(() => true);
     const dead = { writeHead: vi.fn(), write: deadWrite, end: vi.fn(), destroyed: true } as unknown as ServerResponse;
 
     broadcaster.subscribe(healthy);
@@ -62,5 +62,20 @@ describe("SSEBroadcaster", () => {
     expect(healthyWrite).toHaveBeenCalled();
     expect(deadWrite).not.toHaveBeenCalled();
     expect(broadcaster.clientCount).toBe(1);
+  });
+
+  it("write 返回 false（背压）时断开慢客户端", () => {
+    const broadcaster = new SSEBroadcaster();
+    const slowWrite = vi.fn(() => false);
+    const slow = { writeHead: vi.fn(), write: slowWrite, end: vi.fn() } as unknown as ServerResponse;
+
+    broadcaster.subscribe(slow);
+    expect(broadcaster.clientCount).toBe(1);
+
+    broadcaster.broadcast({ type: "turn_end" });
+
+    expect(slowWrite).toHaveBeenCalled();
+    expect(slow.end).toHaveBeenCalled();
+    expect(broadcaster.clientCount).toBe(0);
   });
 });

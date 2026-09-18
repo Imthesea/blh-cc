@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { insertUserRule, matchRule, DEFAULT_RULES, SKIP_PERMISSIONS_RULES } from "../../src/security/rules.js";
+import {
+  insertUserRule,
+  matchRule,
+  DEFAULT_RULES,
+  SKIP_PERMISSIONS_RULES,
+  isDestructiveBashCommand,
+} from "../../src/security/rules.js";
 
 describe("DEFAULT_RULES", () => {
   it("has exactly 6 rules", () => {
@@ -55,6 +61,58 @@ describe("SKIP_PERMISSIONS_RULES", () => {
     expect(matchRule(SKIP_PERMISSIONS_RULES, "read_file", "x.ts")).toBe("allow");
     expect(matchRule(SKIP_PERMISSIONS_RULES, "mcp__docs__search", "")).toBe("ask");
     expect(matchRule(SKIP_PERMISSIONS_RULES, "connect_mcp", "")).toBe("ask");
+  });
+});
+
+describe("isDestructiveBashCommand", () => {
+  it("识别 rm -rf 根目录/家目录/系统目录变体", () => {
+    for (const cmd of [
+      "rm -rf /",
+      "rm -rf /*",
+      "rm -rf --no-preserve-root /",
+      "rm -rf ~",
+      "rm -rf /home",
+      "rm -rf /etc /var",
+      "rm -fr /",
+    ]) {
+      expect(isDestructiveBashCommand(cmd), cmd).toBe(true);
+    }
+  });
+
+  it("识别 git 强制推送变体", () => {
+    for (const cmd of [
+      "git push -f origin main",
+      "git push --force",
+      "git push --force-with-lease origin main",
+      "git push origin +main",
+    ]) {
+      expect(isDestructiveBashCommand(cmd), cmd).toBe(true);
+    }
+  });
+
+  it("识别 find 删除与磁盘破坏", () => {
+    for (const cmd of [
+      "find / -delete",
+      "find / -exec rm -rf {} \\;",
+      "mkfs.ext4 /dev/sda1",
+      "dd if=/dev/zero of=/dev/sda",
+    ]) {
+      expect(isDestructiveBashCommand(cmd), cmd).toBe(true);
+    }
+  });
+
+  it("不误伤普通命令", () => {
+    for (const cmd of [
+      "ls -la",
+      "rm -rf node_modules",
+      "rm dist",
+      "npm install",
+      "git push origin main",
+      "git commit -m x",
+      "find . -name '*.js'",
+    ]) {
+      expect(isDestructiveBashCommand(cmd), cmd).toBe(false);
+    }
   });
 });
 

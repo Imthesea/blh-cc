@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:f
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createLogger, initLogger, resetLogger } from "../src/node.js";
+import { appendRawEntry, createLogger, initLogger, resetLogger } from "../src/node.js";
 import { fileDate } from "../src/format.js";
 
 let tmpDir: string;
@@ -19,13 +19,15 @@ afterEach(() => {
 });
 
 describe("node logger", () => {
-  it("initLogger 后写文件", () => {
+  it("initLogger 后写文件", async () => {
     initLogger(tmpDir, "info");
     const log = createLogger("providers.openai");
     log.info("chat request", { model: "m" });
     const file = path.join(tmpDir, ".blh", "logs", `blh-${fileDate(new Date())}.log`);
-    expect(existsSync(file)).toBe(true);
-    expect(readFileSync(file, "utf8")).toContain("chat request");
+    await vi.waitFor(() => {
+      expect(existsSync(file)).toBe(true);
+      expect(readFileSync(file, "utf8")).toContain("chat request");
+    });
   });
 
   it("未 initLogger 时只写 stderr 不写文件", () => {
@@ -36,15 +38,17 @@ describe("node logger", () => {
     expect(existsSync(path.join(tmpDir, ".blh", "logs"))).toBe(false);
   });
 
-  it("过滤 debug（默认 info 级别）", () => {
+  it("过滤 debug（默认 info 级别）", async () => {
     initLogger(tmpDir, "info");
     const log = createLogger("x");
     log.debug("hidden");
     log.info("shown");
     const file = path.join(tmpDir, ".blh", "logs", `blh-${fileDate(new Date())}.log`);
-    const content = readFileSync(file, "utf8");
-    expect(content).toContain("shown");
-    expect(content).not.toContain("hidden");
+    await vi.waitFor(() => {
+      const content = readFileSync(file, "utf8");
+      expect(content).toContain("shown");
+      expect(content).not.toContain("hidden");
+    });
   });
 
   it("child 拼接名字", () => {
@@ -54,24 +58,38 @@ describe("node logger", () => {
     expect(write.mock.calls[0]?.[0]).toContain("[core.loop]");
   });
 
-  it("error 附带消息与堆栈", () => {
+  it("error 附带消息与堆栈", async () => {
     initLogger(tmpDir, "error");
     const log = createLogger("x");
     log.error("failed", {}, new Error("boom"));
     const file = path.join(tmpDir, ".blh", "logs", `blh-${fileDate(new Date())}.log`);
-    const content = readFileSync(file, "utf8");
-    expect(content).toContain("failed: boom");
-    expect(content).toContain("stack");
+    await vi.waitFor(() => {
+      const content = readFileSync(file, "utf8");
+      expect(content).toContain("failed: boom");
+      expect(content).toContain("stack");
+    });
   });
 
   it("写文件失败时不抛错", () => {
     initLogger(tmpDir, "info");
-    // 把目标日志文件占位成目录，使 appendFileSync 抛出 EISDIR
+    // 把目标日志文件占位成目录，使 appendFile 异步 reject（EISDIR），内部 catch 吞掉
     const file = path.join(tmpDir, ".blh", "logs", `blh-${fileDate(new Date())}.log`);
     mkdirSync(file, { recursive: true });
     const write = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const log = createLogger("x");
     expect(() => log.info("hello")).not.toThrow();
     expect(write).toHaveBeenCalled();
+  });
+
+  it("appendRawEntry 过滤低于当前级别的日志", async () => {
+    initLogger(tmpDir, "info");
+    appendRawEntry({ time: new Date(), level: "debug", module: "x", message: "hidden", fields: {} });
+    appendRawEntry({ time: new Date(), level: "info", module: "x", message: "shown", fields: {} });
+    const file = path.join(tmpDir, ".blh", "logs", `blh-${fileDate(new Date())}.log`);
+    await vi.waitFor(() => {
+      const content = readFileSync(file, "utf8");
+      expect(content).toContain("shown");
+      expect(content).not.toContain("hidden");
+    });
   });
 });

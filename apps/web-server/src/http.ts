@@ -10,7 +10,7 @@ import type { ApprovalDecision } from "./types.js";
 import type { SessionManager } from "./session.js";
 import type { SSEBroadcaster } from "./bridge.js";
 import type { SessionStoreModule } from "./types.js";
-import { appendRawEntry, createLogger, type LogLevel } from "@blh/logger";
+import { appendRawEntry, createLogger, isLogLevel } from "@blh/logger";
 
 const CONTENT_TYPES: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -27,8 +27,15 @@ const CSRF_HEADER = "x-blh-web";
 
 const log = createLogger("web-server.http");
 
-function isLogLevel(value: unknown): value is LogLevel {
-  return value === "debug" || value === "info" || value === "warn" || value === "error";
+/** 校验 Host 头的 hostname 是否为回环地址，防 DNS rebinding 读取本地服务。 */
+function isLocalHost(hostHeader: string | undefined): boolean {
+  if (hostHeader === undefined) return false;
+  try {
+    const hostname = new URL(`http://${hostHeader}`).hostname.toLowerCase().replace(/^\[|\]$/g, "");
+    return hostname === "127.0.0.1" || hostname === "localhost" || hostname === "::1";
+  } catch {
+    return false;
+  }
 }
 
 export interface WebContext {
@@ -54,10 +61,33 @@ function json(res: ServerResponse, status: number, body: unknown): void {
   res.end(JSON.stringify(body));
 }
 
+/** 请求体大小上限，超限直接 413，避免 OOM。 */
+const MAX_BODY_BYTES = 1024 * 1024;
+
+/** 前端日志单条大小上限，防恶意前端写爆磁盘。 */
+const MAX_LOG_MESSAGE = 10_000;
+const MAX_LOG_FIELDS_BYTES = 10_000;
+const MAX_LOG_MODULE = 256;
+
 function readBody(req: IncomingMessage): Promise<unknown> {
   return new Promise((resolve, reject) => {
+    const contentLength = Number(req.headers["content-length"]);
+    if (Number.isFinite(contentLength) && contentLength > MAX_BODY_BYTES) {
+      reject(new HttpError(413, "request body too large"));
+      req.resume();
+      return;
+    }
     const chunks: Buffer[] = [];
-    req.on("data", (chunk: Buffer) => chunks.push(chunk));
+    let total = 0;
+    req.on("data", (chunk: Buffer) => {
+      total += chunk.length;
+      if (total > MAX_BODY_BYTES) {
+        reject(new HttpError(413, "request body too large"));
+        req.resume();
+        return;
+      }
+      chunks.push(chunk);
+    });
     req.on("end", () => {
       const raw = Buffer.concat(chunks).toString("utf8");
       if (raw.trim() === "") {
@@ -107,7 +137,13 @@ function listSessions(
 }
 
 function serveStatic(res: ServerResponse, root: string, pathname: string): void {
-  const rel = pathname === "/" ? "index.html" : pathname.slice(1);
+  let rel = pathname === "/" ? "index.html" : pathname.slice(1);
+  try {
+    rel = decodeURIComponent(rel);
+  } catch {
+    json(res, 400, { error: "bad path" });
+    return;
+  }
   const resolvedRoot = path.resolve(root);
   const file = path.normalize(path.join(resolvedRoot, rel));
   if (!file.startsWith(resolvedRoot + path.sep) || !existsSync(file) || !statSync(file).isFile()) {
@@ -115,8 +151,14 @@ function serveStatic(res: ServerResponse, root: string, pathname: string): void 
     return;
   }
   const ext = path.extname(file);
+  const stream = createReadStream(file);
+  stream.on("error", () => {
+    if (res.headersSent) res.destroy();
+    else json(res, 500, { error: "read failed" });
+  });
+  res.on("close", () => stream.destroy());
   res.writeHead(200, { "Content-Type": CONTENT_TYPES[ext] ?? "application/octet-stream" });
-  createReadStream(file).pipe(res);
+  stream.pipe(res);
 }
 
 async function handleApi(
@@ -159,10 +201,17 @@ async function handleApi(
       json(res, 400, { error: "invalid session file" });
       return;
     }
-    const messages = ctx.sessionStore.load(
-      path.join(ctx.sessionStore.sessionsDir(ctx.workdir), file),
-    );
-    json(res, 200, { file, messages });
+    const filePath = path.join(ctx.sessionStore.sessionsDir(ctx.workdir), file);
+    if (!existsSync(filePath)) {
+      json(res, 404, { error: "session not found" });
+      return;
+    }
+    try {
+      const messages = ctx.sessionStore.load(filePath);
+      json(res, 200, { file, messages });
+    } catch {
+      json(res, 500, { error: "failed to load session" });
+    }
     return;
   }
 
@@ -181,7 +230,7 @@ async function handleApi(
     ctx.session.runTurn(handle.id, text).catch((error: unknown) => {
       log.error("run turn failed", { id: handle.id }, error);
       ctx.broadcaster.broadcast({
-        type: "error",
+        type: "agent_error",
         message: error instanceof Error ? error.message : String(error),
       });
     });
@@ -205,14 +254,17 @@ async function handleApi(
       const e = raw as Record<string, unknown>;
       const level = e.level;
       if (!isLogLevel(level)) continue;
-      const message = typeof e.message === "string" ? e.message : "";
-      const module = typeof e.module === "string" ? e.module : "web";
+      const message = typeof e.message === "string" ? e.message.slice(0, MAX_LOG_MESSAGE) : "";
+      const module = typeof e.module === "string" ? e.module.slice(0, MAX_LOG_MODULE) : "web";
       const parsed = new Date(typeof e.time === "string" ? e.time : Date.now());
       const time = Number.isNaN(parsed.getTime()) ? new Date() : parsed;
-      const fields =
+      let fields =
         typeof e.fields === "object" && e.fields !== null
           ? (e.fields as Record<string, unknown>)
           : {};
+      if (JSON.stringify(fields).length > MAX_LOG_FIELDS_BYTES) {
+        fields = { truncated: true };
+      }
       appendRawEntry({ time, level, module, message, fields });
     }
     log.debug("frontend logs received", { count: bounded.length });
@@ -261,6 +313,10 @@ async function handleApi(
 export function createWebServer(ctx: WebContext): Server {
   return createHttpServer((req, res) => {
     void (async () => {
+      if (!isLocalHost(req.headers.host)) {
+        json(res, 403, { error: "forbidden" });
+        return;
+      }
       const url = new URL(req.url ?? "/", "http://127.0.0.1");
       const method = req.method ?? "GET";
       const pathname = url.pathname;
@@ -280,6 +336,10 @@ export function createWebServer(ctx: WebContext): Server {
       }
       serveStatic(res, ctx.staticDir, pathname);
     })().catch((error: unknown) => {
+      if (res.headersSent) {
+        res.destroy();
+        return;
+      }
       if (error instanceof HttpError) {
         json(res, error.status, { error: error.message });
         return;

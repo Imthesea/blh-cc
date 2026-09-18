@@ -149,6 +149,13 @@ describe("loadConfig file/cli", () => {
     expect(() => loadConfig()).toThrow(ConfigError);
   });
 
+  it("negative int raises ConfigError", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "sk-test");
+    vi.stubEnv("BLH_BASH_TIMEOUT", "-1");
+    const { loadConfig, ConfigError } = await import("../../src/core/config.js");
+    expect(() => loadConfig()).toThrow(ConfigError);
+  });
+
   it("user config then project config (project wins)", async () => {
     vi.stubEnv("OPENAI_API_KEY", "sk-test");
     vi.stubEnv("USERPROFILE", tmpUserDir);

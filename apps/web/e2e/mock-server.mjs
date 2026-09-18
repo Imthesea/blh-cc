@@ -28,7 +28,21 @@ function broadcast(type, data) {
   for (const c of clients) c.write(f);
 }
 
-const server = http.createServer((req, res) => {
+function readJson(req) {
+  return new Promise((resolve) => {
+    let body = "";
+    req.on("data", (chunk) => (body += chunk));
+    req.on("end", () => {
+      try {
+        resolve(JSON.parse(body || "{}"));
+      } catch {
+        resolve({});
+      }
+    });
+  });
+}
+
+const server = http.createServer(async (req, res) => {
   const url = new URL(req.url ?? "/", "http://127.0.0.1");
   const { pathname } = url;
   const method = req.method ?? "GET";
@@ -48,18 +62,53 @@ const server = http.createServer((req, res) => {
     return;
   }
   if (method === "POST" && pathname === "/api/message") {
-    let body = "";
-    req.on("data", (chunk) => (body += chunk));
-    req.on("end", () => {
-      const text = (JSON.parse(body || "{}").text ?? "").toString();
-      res.writeHead(202, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ accepted: true }));
-      messages.push({ role: "user", content: text });
+    const body = await readJson(req);
+    const text = (body.text ?? "").toString();
+    res.writeHead(202, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ accepted: true }));
+    messages.push({ role: "user", content: text });
+
+    if (text.includes("工具")) {
+      broadcast("turn_start");
+      broadcast("tool_call", { id: "t1", name: "read_file", arguments: "{}" });
+      broadcast("tool_result", {
+        id: "t1",
+        name: "read_file",
+        output: "file content",
+        isError: false,
+      });
+      // 不广播 turn_end，保持工具卡片可见供 e2e 断言
+    } else if (text.includes("审批")) {
+      broadcast("turn_start");
+      broadcast("approval_requested", {
+        requestId: "approval_1",
+        tool: "bash",
+        target: "rm -rf /",
+        args: { cmd: "rm -rf /" },
+      });
+    } else if (text.includes("错误")) {
+      broadcast("turn_start");
+      broadcast("agent_error", { message: "模拟错误" });
+    } else {
       broadcast("turn_start");
       broadcast("assistant_text_delta", { text: "你好，世界" });
       messages.push({ role: "assistant", content: "你好，世界" });
       broadcast("turn_end");
-    });
+    }
+    return;
+  }
+  if (method === "POST" && pathname === "/api/approval") {
+    await readJson(req);
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ ok: true }));
+    broadcast("turn_end");
+    return;
+  }
+  if (method === "POST" && pathname === "/api/__reset") {
+    messages.length = 0;
+    history.length = 0;
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ ok: true }));
     return;
   }
   res.writeHead(404, { "Content-Type": "application/json" });

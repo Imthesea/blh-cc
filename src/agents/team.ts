@@ -1,4 +1,5 @@
 import * as path from "node:path";
+import { createLogger } from "@blh/logger";
 import type { ChatMessage, ChatProvider, Config } from "../core/types.js";
 import type { HookBus } from "../core/hooks.js";
 import type { AgentLock } from "../jobs/runtime.js";
@@ -10,6 +11,8 @@ import type { TeammateTeam } from "./teammate.js";
 import { createWorktree as createWorktreeOp, taskCwd as taskCwdOp } from "./worktree.js";
 
 const RESERVED_TEAMMATE_NAMES = new Set(["lead", "agent"]);
+
+const log = createLogger("agents.team");
 
 interface ProtocolState {
   requestId: string;
@@ -86,6 +89,10 @@ export class TeamRuntime implements TeammateTeam {
     if (!this.agentLock.tryAcquire()) return;
     try {
       if (this.teamTurn !== null) await this.teamTurn();
+    } catch (error) {
+      log.warn("lead tick failed", {
+        error: error instanceof Error ? error.message : String(error),
+      });
     } finally {
       this.agentLock.release();
     }

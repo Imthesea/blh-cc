@@ -50,7 +50,15 @@ export class HookBus {
     log.debug("trigger", { event });
     const results: Array<string | null> = [];
     for (const fn of this.hooks.get(event) ?? []) {
-      results.push(await fn(payload));
+      try {
+        results.push(await fn(payload));
+      } catch (error) {
+        log.warn("hook error", {
+          event,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        results.push(null);
+      }
     }
     return results;
   }
@@ -62,8 +70,15 @@ export class HookBus {
   ): Promise<string | null> {
     log.debug("firstBlock", { event });
     for (const fn of this.hooks.get(event) ?? []) {
-      const result = await fn(payload);
-      if (result !== null) return result;
+      try {
+        const result = await fn(payload);
+        if (result !== null) return result;
+      } catch (error) {
+        log.warn("hook error", {
+          event,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
     }
     return null;
   }

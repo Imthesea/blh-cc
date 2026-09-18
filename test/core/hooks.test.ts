@@ -51,4 +51,22 @@ describe("HookBus", () => {
     bus.register(PRE_TOOL_USE, async () => null);
     await expect(bus.firstBlock(PRE_TOOL_USE, bashPayload)).resolves.toBeNull();
   });
+
+  it("trigger isolates hook exceptions and records null", async () => {
+    const bus = new HookBus();
+    bus.register(PRE_TOOL_USE, async () => {
+      throw new Error("boom");
+    });
+    bus.register(PRE_TOOL_USE, async () => "ok");
+    await expect(bus.trigger(PRE_TOOL_USE, bashPayload)).resolves.toEqual([null, "ok"]);
+  });
+
+  it("firstBlock skips a throwing hook", async () => {
+    const bus = new HookBus();
+    bus.register(PRE_TOOL_USE, async () => {
+      throw new Error("boom");
+    });
+    bus.register(PRE_TOOL_USE, async () => "denied");
+    await expect(bus.firstBlock(PRE_TOOL_USE, bashPayload)).resolves.toBe("denied");
+  });
 });

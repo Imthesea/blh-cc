@@ -7,6 +7,10 @@ export class ToolRegistry {
     this.tools.set(tool.name, tool);
   }
 
+  unregister(name: string): void {
+    this.tools.delete(name);
+  }
+
   list(): ToolDefinition[] {
     return [...this.tools.values()];
   }

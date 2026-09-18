@@ -44,6 +44,14 @@ describe("readFile", () => {
     await fs.writeFile(path.join(dir, "f.txt"), "only\n");
     await expect(readFile(dir, { path: "f.txt", start: 5 })).resolves.toBe("(no more lines)");
   });
+
+  it("rejects files larger than the read cap", async () => {
+    const { readFile } = await import("../../src/tools/files.js");
+    await fs.writeFile(path.join(dir, "big.txt"), "x".repeat(10 * 1024 * 1024 + 1));
+    await expect(readFile(dir, { path: "big.txt" })).resolves.toMatch(
+      /^error: file exceeds max read size/,
+    );
+  });
 });
 
 describe("writeFile", () => {
@@ -75,5 +83,22 @@ describe("editFile", () => {
     await expect(
       editFile(dir, { path: "e.txt", old_text: "zzz", new_text: "q" }),
     ).resolves.toBe("error: old_text occurs 0 times (must be exactly 1)");
+  });
+});
+
+describe("symlink escape", () => {
+  it.skipIf(process.platform === "win32")("blocks symlink escape for read and write", async () => {
+    const { readFile, writeFile, PathEscapeError } = await import("../../src/tools/files.js");
+    const outside = await fs.mkdtemp(path.join(os.tmpdir(), "blh-outside-"));
+    try {
+      await fs.writeFile(path.join(outside, "secret.txt"), "secret");
+      await fs.symlink(outside, path.join(dir, "link"), "dir");
+      await expect(readFile(dir, { path: "link/secret.txt" })).rejects.toThrow(PathEscapeError);
+      await expect(writeFile(dir, { path: "link/new.txt", content: "x" })).rejects.toThrow(
+        PathEscapeError,
+      );
+    } finally {
+      await fs.rm(outside, { recursive: true, force: true });
+    }
   });
 });

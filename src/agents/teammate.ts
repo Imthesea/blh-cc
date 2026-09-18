@@ -1,7 +1,8 @@
 import { POST_TOOL_USE, PRE_TOOL_USE } from "../core/hooks.js";
 import type { HookBus } from "../core/hooks.js";
+import { parseToolArguments } from "../core/parse-args.js";
 import type { ChatMessage, ChatProvider, Config, ToolCall } from "../core/types.js";
-import { approvalContext } from "../security/approval.js";
+import { runInScheduledTurn } from "../security/approval.js";
 import { runBash } from "../tools/bash.js";
 import { editFile, readFile, writeFile } from "../tools/files.js";
 import { glob } from "../tools/glob.js";
@@ -10,18 +11,6 @@ import type { BusMessage } from "./bus.js";
 import type { Task, TaskStore } from "../planning/tasks.js";
 
 const IDLE_SCAN_INTERVAL = 2000;
-
-/** 把工具调用传过来的 JSON 字符串解析成对象；解析失败或不是普通对象时，返回空对象 {}。 */
-function parseArgs(raw: string): Record<string, unknown> {
-  try {
-    const parsed: unknown = JSON.parse(raw);
-    return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
-      ? (parsed as Record<string, unknown>)
-      : {};
-  } catch {
-    return {};
-  }
-}
 
 /** TeammateRuntime 依赖的 TeamRuntime 能力（结构化类型，避免与 team.ts 的循环 import）。 */
 export interface TeammateTeam {
@@ -259,17 +248,13 @@ export class TeammateRuntime {
     ) {
       return `Blocked: plan status is ${gate}.`;
     }
-    const previous = approvalContext.scheduledTurn;
-    approvalContext.scheduledTurn = true;
-    try {
+    return runInScheduledTurn(async () => {
       const blocked = await this.hooks.firstBlock(PRE_TOOL_USE, { name, input: event.input });
       if (blocked !== null) return blocked;
       const result = await this.tools.dispatch(name, event.input);
       await this.hooks.trigger(POST_TOOL_USE, { name, input: event.input, output: result });
       return result;
-    } finally {
-      approvalContext.scheduledTurn = previous;
-    }
+    });
   }
 
   /** 处理收件箱里的消息：关闭请求、计划审批结果、计划要求、普通消息分别处理；收到并接受关闭请求就返回 true。 */
@@ -347,7 +332,7 @@ export class TeammateRuntime {
     if (toolCalls.length > 0) {
       for (const call of toolCalls) {
         const name = call.function.name;
-        const input = parseArgs(call.function.arguments);
+        const input = parseToolArguments(call.function.arguments);
         const result = await this.runTool({ name, input });
         this.messages.push({ role: "tool", tool_call_id: call.id, content: result });
       }

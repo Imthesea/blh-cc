@@ -1,5 +1,6 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import type { PermissionRule } from "./rules.js";
-import { insertUserRule, matchRule } from "./rules.js";
+import { insertUserRule, isDestructiveBashCommand, matchRule } from "./rules.js";
 import { createLogger } from "@blh/logger";
 
 const log = createLogger("security.approval");
@@ -20,14 +21,20 @@ export type PermissionHook = (
   args: Record<string, unknown>,
 ) => Promise<string | null>;
 
-/** scheduled turn 上下文标志 */
-export const approvalContext = { scheduledTurn: false };
+/** scheduled turn 上下文：随异步调用链传播，隔离并发（替代进程级可变单例）。 */
+const scheduledTurnStorage = new AsyncLocalStorage<boolean>();
+
+/** 在 scheduled-turn 上下文中执行回调，回调内申请交互审批会被拒绝。 */
+export function runInScheduledTurn<T>(fn: () => Promise<T>): Promise<T> {
+  return scheduledTurnStorage.run(true, fn);
+}
 
 export function makePermissionHook(
   rules: PermissionRule[],
   ask?: ApprovalAsker,
   persistRule?: (rule: PermissionRule) => void,
 ): PermissionHook {
+  const hasAsker = ask !== undefined;
   const asker: ApprovalAsker = ask ?? (async () => "deny");
 
   return async (tool, args) => {
@@ -35,17 +42,24 @@ export function makePermissionHook(
       (typeof args.command === "string" && args.command) ||
       (typeof args.path === "string" && args.path) ||
       "";
+    if (tool === "bash" && isDestructiveBashCommand(target)) {
+      log.warn("denied by rule (destructive)", { tool, target });
+      return `denied by permission rule (${tool}: ${target})`;
+    }
     const action = matchRule(rules, tool, target);
     if (action === "allow") return null;
     if (action === "deny") {
       log.warn("denied by rule", { tool, target });
       return `denied by permission rule (${tool}: ${target})`;
     }
-    if (approvalContext.scheduledTurn) {
+    if (scheduledTurnStorage.getStore() === true) {
       return "denied: cannot request approval from a scheduled turn";
     }
     const decision = await asker({ tool, target, args });
     if (decision === "deny") {
+      if (!hasAsker) {
+        return "denied: no approval asker available (non-interactive mode); use --dangerously-skip-permissions to allow non-destructive bash";
+      }
       log.warn("denied by user", { tool, target });
       return "denied by user";
     }

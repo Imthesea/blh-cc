@@ -1,5 +1,8 @@
 import type { AgentEvent } from "./types.js";
 import type { AgentEventListener, WebEventBus } from "./types.js";
+import { createLogger } from "@blh/logger";
+
+const log = createLogger("web-server.events");
 
 /** 极简发布订阅总线：把 harness 的高层事件转发给 SSE 广播。 */
 export class EventBus implements WebEventBus {
@@ -17,9 +20,14 @@ export class EventBus implements WebEventBus {
     for (const listener of [...this.listeners]) {
       try {
         await listener(event);
-      } catch {
-        // 单个监听器出错不影响其它监听器
+      } catch (error) {
+        // 单个监听器出错不影响其它监听器，但需记录避免静默丢事件
+        log.warn("event listener failed", {
+          type: event.type,
+          error: error instanceof Error ? error.message : String(error),
+        });
       }
     }
   }
 }
+

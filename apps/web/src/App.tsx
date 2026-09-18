@@ -17,6 +17,7 @@ export function App() {
         <SessionSidebar
           sessions={state.sessions}
           activeId={state.sessionId}
+          loading={state.sessionLoading}
           onNew={() => void state.createSession()}
           onResume={(file) => void state.resume(file)}
         />
@@ -26,6 +27,7 @@ export function App() {
             streaming={state.streaming}
             toolEvents={state.toolEvents}
             busy={state.busy}
+            approval={state.approval}
           />
           {state.error !== null && <div className="error-banner">{state.error}</div>}
           <InputBar busy={state.busy} onSend={(text) => void state.send(text)} />

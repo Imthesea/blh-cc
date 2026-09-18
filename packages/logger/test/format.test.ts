@@ -16,6 +16,30 @@ describe("formatTerminal", () => {
     expect(line).toContain("model=gpt-4o-mini");
     expect(line).toContain("tools=5");
   });
+
+  it("时间含毫秒", () => {
+    const time = new Date();
+    time.setHours(8, 3, 22, 123);
+    const line = formatTerminal({
+      time,
+      level: "info",
+      module: "x",
+      message: "m",
+      fields: {},
+    });
+    expect(line).toContain("08:03:22.123");
+  });
+
+  it("含空白的字段值加引号", () => {
+    const line = formatTerminal({
+      time: new Date(),
+      level: "info",
+      module: "x",
+      message: "m",
+      fields: { path: "a b" },
+    });
+    expect(line).toContain('path="a b"');
+  });
 });
 
 describe("formatFile", () => {

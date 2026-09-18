@@ -1,18 +1,24 @@
 import type { LogEntry, LogFields, Logger, LogLevel, LogSink } from "./types.js";
 
-const LEVEL_ORDER: Record<LogLevel, number> = {
+export const LEVEL_ORDER: Record<LogLevel, number> = {
   debug: 10,
   info: 20,
   warn: 30,
   error: 40,
 };
 
+/** 判断一个值是不是合法日志级别。 */
+export function isLogLevel(value: unknown): value is LogLevel {
+  return value === "debug" || value === "info" || value === "warn" || value === "error";
+}
+
 function pad(value: number): string {
   return String(value).padStart(2, "0");
 }
 
 function terminalTime(date: Date): string {
-  return `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+  const ms = String(date.getMilliseconds()).padStart(3, "0");
+  return `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}.${ms}`;
 }
 
 export function fileDate(date: Date): string {
@@ -32,6 +38,11 @@ function formatFields(fields: LogFields): string {
     .map(([key, value]) => {
       const text =
         typeof value === "object" && value !== null ? safeStringify(value) : String(value);
+      // 值含空白或引号时用双引号包裹并转义，保证单行可解析
+      if (/[\s"]/.test(text)) {
+        const escaped = text.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+        return `${key}="${escaped}"`;
+      }
       return `${key}=${text}`;
     })
     .join(" ");

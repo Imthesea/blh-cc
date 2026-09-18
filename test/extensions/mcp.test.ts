@@ -68,6 +68,16 @@ describe("MCPClient", () => {
       await client.close();
     }
   });
+
+  it("start_rejects_when_command_does_not_exist", async () => {
+    const client = new MCPClient("x", "definitely-not-a-real-cmd-xyz");
+    await expect(client.start()).rejects.toThrow();
+  });
+
+  it("start_rejects_when_server_exits_immediately", async () => {
+    const client = new MCPClient("x", process.execPath, ["-e", "process.exit(1)"], 2000);
+    await expect(client.start()).rejects.toThrow();
+  });
 });
 
 describe("normalizeMcpName", () => {
@@ -105,5 +115,29 @@ describe("MCPRegistry", () => {
     expect(mcp.systemPromptSection()).toBe("");
     await mcp.connect("fake", process.execPath, ["-e", SERVER_CODE]);
     expect(mcp.systemPromptSection()).toContain("fake");
+  });
+
+  it("connect_rolls_back_on_tool_name_too_long", async () => {
+    const longName = "x".repeat(60);
+    const code = `
+const readline = require("node:readline");
+const rl = readline.createInterface({ input: process.stdin });
+function reply(id, result) { process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id, result }) + "\\n"); }
+const TOOLS = [
+  { name: "search", description: "s", inputSchema: { type: "object", properties: {} } },
+  { name: "${longName}", description: "long", inputSchema: { type: "object", properties: {} } },
+];
+rl.on("line", (line) => {
+  const req = JSON.parse(line);
+  if (req.method === "initialize") reply(req.id, { protocolVersion: "2024-11-05", capabilities: { tools: {} }, serverInfo: { name: "fake", version: "1.0" } });
+  else if (req.method === "tools/list") reply(req.id, { tools: TOOLS });
+  else reply(req.id, { content: [], isError: false });
+});
+`;
+    const registry = new ToolRegistry();
+    const mcp = new MCPRegistry(registry, ".");
+    const result = await mcp.connect("fake", process.execPath, ["-e", code]);
+    expect(result).toContain("tool name too long");
+    expect(registry.list().filter((t) => t.name.startsWith("mcp__"))).toEqual([]);
   });
 });

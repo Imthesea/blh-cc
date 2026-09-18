@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import type { ApprovalDecision } from "@blh/web-client";
 import type { ApprovalRequest } from "../hooks/useAgentEvents";
 
@@ -6,11 +7,21 @@ export function ApprovalModal(props: {
   onRespond(decision: ApprovalDecision): void;
 }) {
   const { approval, onRespond } = props;
+
+  useEffect(() => {
+    if (approval === null) return;
+    function onKeydown(e: KeyboardEvent) {
+      if (e.key === "Escape") onRespond("deny");
+    }
+    window.addEventListener("keydown", onKeydown);
+    return () => window.removeEventListener("keydown", onKeydown);
+  }, [approval, onRespond]);
+
   if (approval === null) return null;
   return (
     <div className="modal-backdrop">
-      <div className="modal">
-        <h2>工具需要授权</h2>
+      <div className="modal" role="dialog" aria-modal="true" aria-labelledby="approval-title">
+        <h2 id="approval-title">工具需要授权</h2>
         <p>
           <strong>{approval.tool}</strong>
           {approval.target !== "" ? `：${approval.target}` : ""}

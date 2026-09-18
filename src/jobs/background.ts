@@ -1,5 +1,5 @@
 /** 后台任务:慢 bash 命令异步执行,后续轮次收集完成通知。 */
-import { execFile, type ChildProcess } from "node:child_process";
+import { spawn, execFile, type ChildProcess } from "node:child_process";
 
 export interface BackgroundTask {
   command: string;
@@ -32,22 +32,25 @@ function runBashProcess(
       resolve({ output: text || "(no output)", exitCode });
     };
 
-    const child = execFile(
-      shell,
-      shellArgs,
-      { cwd: workdir, maxBuffer: 64 * 1024 * 1024 },
-      (error) => {
-        const exitCode =
-          typeof child.exitCode === "number" ? child.exitCode : error ? 1 : 0;
-        finish(stdout + stderr, exitCode);
-      },
-    );
+    const child = spawn(shell, shellArgs, {
+      cwd: workdir,
+      detached: process.platform !== "win32",
+    });
 
     child.stdout?.on("data", (chunk: Buffer) => {
       stdout += chunk.toString("utf8");
     });
     child.stderr?.on("data", (chunk: Buffer) => {
       stderr += chunk.toString("utf8");
+    });
+
+    child.on("error", (error) => {
+      finish(`error: ${error.message}`, 1);
+    });
+
+    child.on("close", (code) => {
+      const exitCode = typeof code === "number" ? code : 1;
+      finish(stdout + stderr, exitCode);
     });
 
     setTimeout(() => {
@@ -66,7 +69,11 @@ function killTree(child: ChildProcess): Promise<void> {
     if (process.platform === "win32") {
       execFile("taskkill", ["/pid", String(child.pid), "/T", "/F"], () => resolve());
     } else {
-      child.kill("SIGKILL");
+      try {
+        process.kill(-child.pid, "SIGKILL");
+      } catch {
+        child.kill("SIGKILL");
+      }
       resolve();
     }
   });

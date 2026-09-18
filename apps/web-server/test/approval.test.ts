@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApprovalCoordinator, loadUserRules, persistUserRule, userRulesPath } from "../src/approval.js";
 import type { WebEvent } from "../src/bridge.js";
 
@@ -52,5 +52,17 @@ describe("ApprovalCoordinator", () => {
   it("resolve 未知 id 返回 false", () => {
     const coordinator = new ApprovalCoordinator(() => {});
     expect(coordinator.resolve("nope", "allow")).toBe(false);
+  });
+
+  it("超时自动拒绝", async () => {
+    vi.useFakeTimers();
+    try {
+      const coordinator = new ApprovalCoordinator(() => {});
+      const promise = coordinator.ask({ tool: "bash", target: "ls", args: {} });
+      await vi.advanceTimersByTimeAsync(5 * 60 * 1000 + 1);
+      await expect(promise).resolves.toBe("deny");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

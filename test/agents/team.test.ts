@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MessageBus } from "../../src/agents/bus.js";
 import { TeamRuntime } from "../../src/agents/team.js";
 import { HookBus } from "../../src/core/hooks.js";
@@ -94,5 +94,17 @@ describe("TeamRuntime", () => {
     const requestId = [...team.pendingRequests.keys()][0] as string;
     expect(team.reviewPlan(requestId, true)).toContain("Plan approved");
     expect(team.pendingRequests.get(requestId)?.status).toBe("approved");
+  });
+
+  it("leadTick catches teamTurn errors and releases lock", async () => {
+    const team = makeTeam();
+    const releaseSpy = vi.spyOn(team.agentLock, "release");
+    team.bus.send("bob", "lead", "hi");
+    team.setTeamTurn(async () => {
+      throw new Error("boom");
+    });
+    await (team as unknown as { leadTick: () => Promise<void> }).leadTick();
+    expect(releaseSpy).toHaveBeenCalled();
+    releaseSpy.mockRestore();
   });
 });

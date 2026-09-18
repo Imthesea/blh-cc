@@ -1,5 +1,6 @@
 import { POST_TOOL_USE, PRE_TOOL_USE } from "../core/hooks.js";
 import type { HookBus } from "../core/hooks.js";
+import { parseToolArguments } from "../core/parse-args.js";
 import type { ChatMessage, ChatProvider, Config, ToolCall } from "../core/types.js";
 import { registerBuiltinTools } from "../tools/index.js";
 import { ToolRegistry } from "../tools/registry.js";
@@ -7,18 +8,6 @@ import { ToolRegistry } from "../tools/registry.js";
 const SUB_SYSTEM =
   "你是一个编程智能体。完成给定的任务，然后返回一个简洁的最终回答。";
 const MAX_SUBAGENT_TURNS = 30;
-
-/** 把工具调用传过来的 JSON 字符串解析成对象；解析失败或不是普通对象时，返回空对象 {}。 */
-function parseArgs(raw: string): Record<string, unknown> {
-  try {
-    const parsed: unknown = JSON.parse(raw);
-    return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
-      ? (parsed as Record<string, unknown>)
-      : {};
-  } catch {
-    return {};
-  }
-}
 
 /** 一次性嵌套 Agent Loop：新鲜 messages、无 task 工具、最多 30 轮，只返回最终文本。 */
 export class SubagentRunner {
@@ -55,7 +44,7 @@ export class SubagentRunner {
       }
       for (const call of toolCalls) {
         const name = call.function.name;
-        const input = parseArgs(call.function.arguments);
+        const input = parseToolArguments(call.function.arguments);
         const blocked = await this.hooks.firstBlock(PRE_TOOL_USE, { name, input });
         let result: string;
         if (blocked !== null) {

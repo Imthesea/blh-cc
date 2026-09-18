@@ -228,7 +228,8 @@ const PROMPT_TOO_LONG_KEYWORDS = [
 /** 启发式判定上下文超长：HTTP 400 + 错误体关键词（各兼容端格式不一） */
 export function isPromptTooLong(error: unknown): boolean {
   if (!(error instanceof Error) || !("status" in error)) return false;
-  if (error.status !== 400) return false;
+  const status = (error as Error & { status: unknown }).status;
+  if (status !== 400 && status !== 413 && status !== 422) return false;
   const text = error.message.toLowerCase();
   return PROMPT_TOO_LONG_KEYWORDS.some((keyword) => text.includes(keyword));
 }

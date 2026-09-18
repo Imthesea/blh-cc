@@ -106,6 +106,15 @@ describe("isPromptTooLong", () => {
     expect(isPromptTooLong(new Error("prompt_too_long"))).toBe(false); // 无 400
     expect(isPromptTooLong("prompt_too_long")).toBe(false); // 非 Error
   });
+
+  it("413/422 + 关键词也判定为超长", async () => {
+    const { isPromptTooLong } = await import("../../src/providers/openai.js");
+    const err = (status: number, text: string) =>
+      Object.assign(new Error(text), { status });
+    expect(isPromptTooLong(err(413, "prompt_too_long"))).toBe(true);
+    expect(isPromptTooLong(err(422, "context length exceeded"))).toBe(true);
+    expect(isPromptTooLong(err(500, "prompt_too_long"))).toBe(false);
+  });
 });
 
 describe("OpenAIProvider.stream", () => {

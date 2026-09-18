@@ -1,4 +1,4 @@
-import { execFile, type ChildProcess } from "node:child_process";
+import { spawn, execFile, type ChildProcess } from "node:child_process";
 
 export function runBash(
   workdir: string,
@@ -18,20 +18,12 @@ export function runBash(
     let stdout = "";
     let stderr = "";
     let settled = false;
+    let timer: NodeJS.Timeout | undefined;
 
-    const child = execFile(
-      shell,
-      shellArgs,
-      { cwd: workdir, maxBuffer: 64 * 1024 * 1024 },
-      (error) => {
-        if (settled) return;
-        settled = true;
-        const combinedOutput = stdout + (stderr ? `\n(stderr):\n${stderr}` : "");
-        const exitCode =
-          typeof child.exitCode === "number" ? child.exitCode : error ? 1 : 0;
-        resolve(formatBashOutput(combinedOutput, exitCode, maxOutputChars));
-      },
-    );
+    const child = spawn(shell, shellArgs, {
+      cwd: workdir,
+      detached: process.platform !== "win32",
+    });
 
     child.stdout?.on("data", (chunk: Buffer) => {
       stdout += chunk.toString("utf8");
@@ -40,13 +32,30 @@ export function runBash(
       stderr += chunk.toString("utf8");
     });
 
-    setTimeout(() => {
+    child.on("error", (error) => {
+      if (settled) return;
+      settled = true;
+      if (timer !== undefined) clearTimeout(timer);
+      resolve(`error: ${error.message}`);
+    });
+
+    child.on("close", (code) => {
+      if (settled) return;
+      settled = true;
+      if (timer !== undefined) clearTimeout(timer);
+      const combinedOutput = stdout + (stderr ? `\n(stderr):\n${stderr}` : "");
+      const exitCode = typeof code === "number" ? code : 1;
+      resolve(formatBashOutput(combinedOutput, exitCode, maxOutputChars));
+    });
+
+    timer = setTimeout(() => {
       if (settled) return;
       settled = true;
       void killTree(child).then(() =>
         resolve(`error: command timed out after ${timeoutSec}s`),
       );
     }, timeoutSec * 1000 + 50);
+    timer.unref();
   });
 }
 
@@ -58,7 +67,11 @@ function killTree(child: ChildProcess): Promise<void> {
       // taskkill /T /F 会连同整个进程树一并强杀。
       execFile("taskkill", ["/pid", String(child.pid), "/T", "/F"], () => resolve());
     } else {
-      child.kill("SIGKILL");
+      try {
+        process.kill(-child.pid, "SIGKILL");
+      } catch {
+        child.kill("SIGKILL");
+      }
       resolve();
     }
   });

@@ -58,12 +58,20 @@ function findConfig(start: string): string[] {
 
 /** 把一个值转成整数；转不了（比如传了 "abc"）就抛错。用来校验配置里的数字项。 */
 function toInt(value: unknown, key: string): number {
-  if (typeof value === "number" && Number.isInteger(value)) return value;
-  const text = String(value).trim();
-  if (!/^-?\d+$/.test(text)) {
-    throw new ConfigError(`${key} 不是合法的整数: ${JSON.stringify(value)}`);
+  let number: number;
+  if (typeof value === "number" && Number.isInteger(value)) {
+    number = value;
+  } else {
+    const text = String(value).trim();
+    if (!/^-?\d+$/.test(text)) {
+      throw new ConfigError(`${key} 不是合法的整数: ${JSON.stringify(value)}`);
+    }
+    number = Number.parseInt(text, 10);
   }
-  return Number.parseInt(text, 10);
+  if (number < 0) {
+    throw new ConfigError(`${key} 不能为负数: ${JSON.stringify(value)}`);
+  }
+  return number;
 }
 
 /** 加载最终配置：按「命令行 > 环境变量 > 配置文件 > 默认值」的优先级合并，并校验 API key、超时等关键项。 */

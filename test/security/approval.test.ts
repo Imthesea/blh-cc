@@ -1,6 +1,10 @@
 import { describe, it, expect, vi } from "vitest";
-import { makePermissionHook, approvalContext } from "../../src/security/approval.js";
-import { DEFAULT_RULES, type PermissionRule } from "../../src/security/rules.js";
+import { makePermissionHook, runInScheduledTurn } from "../../src/security/approval.js";
+import {
+  DEFAULT_RULES,
+  SKIP_PERMISSIONS_RULES,
+  type PermissionRule,
+} from "../../src/security/rules.js";
 
 describe("makePermissionHook（结构化 asker）", () => {
   it("asker 返回 allow 时放行", async () => {
@@ -52,15 +56,19 @@ describe("makePermissionHook（结构化 asker）", () => {
   it("scheduled turn 内拒绝交互审批且不调用 asker", async () => {
     const ask = vi.fn().mockResolvedValue("allow");
     const hook = makePermissionHook(DEFAULT_RULES, ask);
-    approvalContext.scheduledTurn = true;
-    try {
+    await runInScheduledTurn(async () => {
       await expect(hook("bash", { command: "ls" })).resolves.toBe(
         "denied: cannot request approval from a scheduled turn",
       );
       expect(ask).not.toHaveBeenCalled();
-    } finally {
-      approvalContext.scheduledTurn = false;
-    }
+    });
+  });
+
+  it("scheduled turn 上下文外不受影响", async () => {
+    const ask = vi.fn().mockResolvedValue("allow");
+    const hook = makePermissionHook(DEFAULT_RULES, ask);
+    expect(await hook("bash", { command: "ls" })).toBeNull();
+    expect(ask).toHaveBeenCalledTimes(1);
   });
 
   it("文件工具用 path 作为 target 参与规则匹配", async () => {
@@ -72,5 +80,38 @@ describe("makePermissionHook（结构化 asker）", () => {
     expect(await hook("write_file", { path: "prod.env" })).toBe(
       "denied by permission rule (write_file: prod.env)",
     );
+  });
+
+  it("无 asker 时返回非交互模式提示", async () => {
+    const hook = makePermissionHook(DEFAULT_RULES);
+    const result = await hook("bash", { command: "ls" });
+    expect(result).toContain("non-interactive");
+  });
+});
+
+describe("makePermissionHook（破坏性命令硬拦截）", () => {
+  it("skip-permissions 下 rm -rf / 仍被 deny 且不调用 asker", async () => {
+    const ask = vi.fn().mockResolvedValue("allow");
+    const hook = makePermissionHook(SKIP_PERMISSIONS_RULES, ask);
+    await expect(hook("bash", { command: "rm -rf /" })).resolves.toBe(
+      "denied by permission rule (bash: rm -rf /)",
+    );
+    expect(ask).not.toHaveBeenCalled();
+  });
+
+  it("skip-permissions 下 git push -f 仍被 deny", async () => {
+    const ask = vi.fn().mockResolvedValue("allow");
+    const hook = makePermissionHook(SKIP_PERMISSIONS_RULES, ask);
+    await expect(hook("bash", { command: "git push -f origin main" })).resolves.toBe(
+      "denied by permission rule (bash: git push -f origin main)",
+    );
+    expect(ask).not.toHaveBeenCalled();
+  });
+
+  it("skip-permissions 下普通命令照常放行", async () => {
+    const ask = vi.fn().mockResolvedValue("deny");
+    const hook = makePermissionHook(SKIP_PERMISSIONS_RULES, ask);
+    expect(await hook("bash", { command: "ls" })).toBeNull();
+    expect(ask).not.toHaveBeenCalled();
   });
 });

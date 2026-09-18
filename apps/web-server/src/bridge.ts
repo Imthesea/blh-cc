@@ -36,7 +36,11 @@ export class SSEBroadcaster {
         continue;
       }
       try {
-        client.write(frame);
+        if (!client.write(frame)) {
+          // 背压：内核缓冲已满，直接丢弃慢客户端，避免内存无界增长
+          this.clients.delete(client);
+          client.end();
+        }
       } catch {
         this.clients.delete(client);
       }

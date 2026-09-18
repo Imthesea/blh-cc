@@ -4,7 +4,7 @@ import type { HookBus } from "./hooks.js";
 import { USER_PROMPT_SUBMIT, STOP } from "./hooks.js";
 import { agentLoop } from "./loop.js";
 import type { EventBus } from "./events.js";
-import { approvalContext } from "../security/approval.js";
+import { runInScheduledTurn } from "../security/approval.js";
 import type { ContextCompactor } from "../compaction/compactor.js";
 import type { TodoManager } from "../planning/todo.js";
 import type { Memory } from "../memory/system.js";
@@ -104,15 +104,12 @@ export class Harness {
     const scheduledStart = messages.length;
     const fired = jobs.consumeAndInjectCron(messages);
     if (fired.length === 0) return;
-    approvalContext.scheduledTurn = true;
     try {
-      await agentLoop(this, messages, "[scheduled]");
+      await runInScheduledTurn(() => agentLoop(this, messages, "[scheduled]"));
     } catch (error) {
       messages.splice(scheduledStart);
       jobs.cron.restore(fired);
       throw error;
-    } finally {
-      approvalContext.scheduledTurn = false;
     }
     jobs.cron.acknowledge(fired);
     await this.hooks.trigger(STOP, {});
@@ -124,12 +121,7 @@ export class Harness {
     if (agents === undefined) return;
     const events = agents.consumeAndInjectTeam(messages);
     if (events === 0) return;
-    approvalContext.scheduledTurn = true;
-    try {
-      await agentLoop(this, messages, "[team]");
-    } finally {
-      approvalContext.scheduledTurn = false;
-    }
+    await runInScheduledTurn(() => agentLoop(this, messages, "[team]"));
     await this.hooks.trigger(STOP, {});
   }
 }

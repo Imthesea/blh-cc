@@ -3,20 +3,17 @@ import path from "node:path";
 
 /** Python fnmatch 语义：* 跨目录分隔符；? 匹配单字符；[seq] 字符类。 */
 export function fnmatch(name: string, pattern: string): boolean {
-  const regex = new RegExp(
-    "^" +
-      pattern
-        .replace(/[.+^${}()|\\]/g, "\\$&")
-        .replace(/\*/g, ".*")
-        .replace(/\?/g, ".")
-        .replace(
-          /\[(!|\^)?([^\]]*)\]/g,
-          (_match, negation: string | undefined, charClass: string) =>
-            `[${negation ? "^" : ""}${charClass.replace(/\\/g, "\\\\")}]`,
-        ) +
-      "$",
-  );
-  return regex.test(name);
+  const source = pattern
+    .replace(/[.+^${}()|\\]/g, "\\$&")
+    .replace(/\*/g, ".*")
+    .replace(/\?/g, ".")
+    .replace(/\[(!|\^)?[^\]]*\]|\[|\]/g, (match, negation: string | undefined) => {
+      // 裸括号（未构成合法字符类）转义为字面量，避免非法正则
+      if (match === "[" || match === "]") return `\\${match}`;
+      const inner = match.slice(negation ? 2 : 1, -1);
+      return `[${negation ? "^" : ""}${inner.replace(/\\/g, "\\\\")}]`;
+    });
+  return new RegExp(`^${source}$`).test(name);
 }
 
 async function* walk(root: string): AsyncGenerator<string> {
