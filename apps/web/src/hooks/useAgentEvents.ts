@@ -11,6 +11,9 @@ import {
   type ChatMessage,
   type SessionListItem,
 } from "@blh/web-client";
+import { createLogger } from "@blh/logger";
+
+const log = createLogger("web.app");
 
 /** 一次工具调用在前端展示所需的状态（参数 + 结果）。 */
 export interface ToolEvent {
@@ -110,6 +113,7 @@ export function useAgentEvents(): AgentState {
           break;
         case "error":
           setError(event.message);
+          log.warn("agent error", { message: event.message });
           setBusy(false);
           setStreaming("");
           setToolEvents([]);
@@ -127,6 +131,7 @@ export function useAgentEvents(): AgentState {
       await sendMessage(text);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
+      log.error("send failed", {}, e);
       setMessages((ms) => ms.filter((m) => m !== userMessage));
     }
   }, []);
@@ -140,6 +145,7 @@ export function useAgentEvents(): AgentState {
         await respondApproval(id, decision);
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));
+        log.error("respond failed", {}, e);
         setApproval(approval);
       }
     },

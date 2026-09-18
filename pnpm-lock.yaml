@@ -48,6 +48,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@blh/logger':
+        specifier: workspace:*
+        version: link:../../packages/logger
       '@blh/web-client':
         specifier: workspace:*
         version: link:../../packages/web-client

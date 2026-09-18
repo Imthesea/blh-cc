@@ -12,7 +12,8 @@
     "noEmit": true,
     "baseUrl": ".",
     "paths": {
-      "@blh/web-client": ["../../packages/web-client/src/index.ts"]
+      "@blh/web-client": ["../../packages/web-client/src/index.ts"],
+      "@blh/logger": ["../../packages/logger/src/browser.ts"]
     }
   },
   "include": ["src", "e2e", "playwright.config.ts", "vite.config.ts"]

@@ -10,6 +10,7 @@ export default defineConfig({
   resolve: {
     alias: {
       "@blh/web-client": path.resolve(root, "../../packages/web-client/src/index.ts"),
+      "@blh/logger": path.resolve(root, "../../packages/logger/src/browser.ts"),
     },
   },
   server: {
