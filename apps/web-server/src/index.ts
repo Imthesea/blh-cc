@@ -35,6 +35,8 @@ export async function startWebServer(options: WebServerOptions): Promise<Running
   const approvals = new ApprovalCoordinator((event) => broadcaster.broadcast(event));
 
   const userRules = loadUserRules(workdir);
+  // web 交互模式：非破坏性 bash 默认放行，不弹框（破坏性命令仍由 isDestructiveBashCommand 与 deny 规则硬拦截）
+  userRules.unshift({ tool: "bash", target: "*", action: "allow" });
   const harness = options.buildHarness({
     workdir,
     ...(options.cli !== undefined ? { cli: options.cli } : {}),
