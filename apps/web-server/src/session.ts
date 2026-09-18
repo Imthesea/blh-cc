@@ -1,28 +1,21 @@
 import * as path from "node:path";
-import type { ChatMessage } from "../core/types.js";
-import { EventBus } from "../core/events.js";
-import { SessionStore } from "../session/store.js";
-import type { ApprovalDecision } from "../security/approval.js";
+import type {
+  ApprovalDecision,
+  ChatMessage,
+  SessionStoreLike,
+  SessionStoreModule,
+  TurnLock,
+  WebTurnRunner,
+} from "./types.js";
 import type { WebEvent } from "./bridge.js";
 import type { ApprovalCoordinator } from "./approval.js";
-
-/** SessionManager 依赖的最小会话运行接口（Harness 满足）。 */
-export interface WebTurnRunner {
-  newSession(): ChatMessage[];
-  runTurn(messages: ChatMessage[], text: string, events?: EventBus): Promise<void>;
-  sessionStore?: SessionStore | undefined;
-}
-
-/** 串行化跑轮次的锁（JobsRuntime.agentLock 满足）。 */
-export interface TurnLock {
-  withLock<T>(fn: () => Promise<T>): Promise<T>;
-}
+import { EventBus } from "./events.js";
 
 export interface SessionHandle {
   id: string;
   file: string;
   messages: ChatMessage[];
-  store: SessionStore;
+  store: SessionStoreLike;
 }
 
 /** 会话管理：当前单会话实现；接口按多会话可扩展（未来换成 Map<id, handle>）。 */
@@ -34,10 +27,11 @@ export class SessionManager {
     private readonly lock: TurnLock,
     private readonly broadcast: (event: WebEvent) => void,
     private readonly approvals: ApprovalCoordinator,
+    private readonly sessionStore: SessionStoreModule,
   ) {}
 
   create(workdir: string): SessionHandle {
-    const store = SessionStore.create(workdir);
+    const store = this.sessionStore.create(workdir);
     this.runner.sessionStore = store;
     const handle: SessionHandle = {
       id: path.basename(store.path),
@@ -53,11 +47,11 @@ export class SessionManager {
     if (path.basename(file) !== file || file === "." || file === "..") {
       throw new Error(`invalid session file: ${file}`);
     }
-    const fullPath = path.join(SessionStore.sessionsDir(workdir), file);
-    const store = SessionStore.open(fullPath);
+    const fullPath = path.join(this.sessionStore.sessionsDir(workdir), file);
+    const store = this.sessionStore.open(fullPath);
     this.runner.sessionStore = store;
     const messages = this.runner.newSession();
-    messages.push(...SessionStore.load(fullPath));
+    messages.push(...this.sessionStore.load(fullPath));
     const handle: SessionHandle = { id: file, file: fullPath, messages, store };
     this.current = handle;
     return handle;

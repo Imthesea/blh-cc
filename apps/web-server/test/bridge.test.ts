@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import type { ServerResponse } from "node:http";
-import { serializeEvent, SSEBroadcaster, type WebEvent } from "../../src/server/bridge.js";
+import { serializeEvent, SSEBroadcaster, type WebEvent } from "../src/bridge.js";
 
 describe("serializeEvent", () => {
   it("序列化文本增量", () => {

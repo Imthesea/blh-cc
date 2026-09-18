@@ -6,10 +6,10 @@ import {
 } from "node:http";
 import { createReadStream, existsSync, readdirSync, statSync } from "node:fs";
 import * as path from "node:path";
+import type { ApprovalDecision } from "./types.js";
 import type { SessionManager } from "./session.js";
 import type { SSEBroadcaster } from "./bridge.js";
-import type { ApprovalDecision } from "../security/approval.js";
-import { SessionStore } from "../session/store.js";
+import type { SessionStoreModule } from "./types.js";
 
 const CONTENT_TYPES: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -30,6 +30,7 @@ export interface WebContext {
   workdir: string;
   /** 前端静态目录；dev 模式为 null（页面由 Vite dev server 提供）。 */
   staticDir: string | null;
+  sessionStore: SessionStoreModule;
 }
 
 class HttpError extends Error {
@@ -66,8 +67,11 @@ function readBody(req: IncomingMessage): Promise<unknown> {
   });
 }
 
-function listSessions(workdir: string): Array<{ file: string; mtime: number; preview: string }> {
-  const dir = SessionStore.sessionsDir(workdir);
+function listSessions(
+  workdir: string,
+  sessionStore: SessionStoreModule,
+): Array<{ file: string; mtime: number; preview: string }> {
+  const dir = sessionStore.sessionsDir(workdir);
   let names: string[];
   try {
     names = readdirSync(dir);
@@ -80,7 +84,7 @@ function listSessions(workdir: string): Array<{ file: string; mtime: number; pre
     const file = path.join(dir, name);
     try {
       if (!statSync(file).isFile()) continue;
-      const messages = SessionStore.load(file);
+      const messages = sessionStore.load(file);
       const firstUser = messages.find((m) => m.role === "user");
       result.push({
         file: name,
@@ -130,7 +134,7 @@ async function handleApi(
   }
 
   if (method === "GET" && pathname === "/api/sessions") {
-    json(res, 200, { sessions: listSessions(ctx.workdir) });
+    json(res, 200, { sessions: listSessions(ctx.workdir, ctx.sessionStore) });
     return;
   }
 
@@ -147,7 +151,9 @@ async function handleApi(
       json(res, 400, { error: "invalid session file" });
       return;
     }
-    const messages = SessionStore.load(path.join(SessionStore.sessionsDir(ctx.workdir), file));
+    const messages = ctx.sessionStore.load(
+      path.join(ctx.sessionStore.sessionsDir(ctx.workdir), file),
+    );
     json(res, 200, { file, messages });
     return;
   }

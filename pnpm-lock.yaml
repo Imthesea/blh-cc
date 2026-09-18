@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      '@blh/web-server':
+        specifier: workspace:*
+        version: link:apps/web-server
       dotenv:
         specifier: ^16.0.0
         version: 16.0.0
@@ -70,6 +73,18 @@ importers:
       vite:
         specifier: ^6.0.0
         version: 6.4.3(@types/node@20.19.43)(tsx@4.23.13)(yaml@2.9.1)
+
+  apps/web-server:
+    devDependencies:
+      '@types/node':
+        specifier: ^20.0.0
+        version: 20.19.43
+      typescript:
+        specifier: ^5.5.0
+        version: 5.5.2
+      vitest:
+        specifier: ^2.0.0
+        version: 2.0.0(@types/node@20.19.43)
 
   packages/web-client:
     devDependencies:

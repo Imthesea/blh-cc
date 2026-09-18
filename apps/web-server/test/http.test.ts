@@ -3,11 +3,13 @@ import { mkdtempSync, rmSync } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createWebServer, type WebContext } from "../../src/server/http.js";
-import { SSEBroadcaster } from "../../src/server/bridge.js";
-import { SessionManager, type TurnLock, type WebTurnRunner } from "../../src/server/session.js";
-import { ApprovalCoordinator } from "../../src/server/approval.js";
+import { createWebServer, type WebContext } from "../src/http.js";
+import { SSEBroadcaster } from "../src/bridge.js";
+import { SessionManager } from "../src/session.js";
+import { ApprovalCoordinator } from "../src/approval.js";
+import type { TurnLock, WebTurnRunner } from "../src/types.js";
 import type { Server } from "node:http";
+import { makeTestSessionStore } from "./helpers.js";
 
 function makeContext(workdir: string): WebContext {
   const broadcaster = new SSEBroadcaster();
@@ -20,9 +22,10 @@ function makeContext(workdir: string): WebContext {
     },
   };
   const lock: TurnLock = { withLock: async <T,>(fn: () => Promise<T>) => fn() };
-  const session = new SessionManager(runner, lock, (event) => broadcaster.broadcast(event), approvals);
+  const sessionStore = makeTestSessionStore();
+  const session = new SessionManager(runner, lock, (event) => broadcaster.broadcast(event), approvals, sessionStore);
   session.create(workdir);
-  return { session, broadcaster, workdir, staticDir: null };
+  return { session, broadcaster, workdir, staticDir: null, sessionStore };
 }
 
 async function listen(ctx: WebContext): Promise<{ server: Server; url: string }> {

@@ -1,17 +1,7 @@
 import type { ServerResponse } from "node:http";
-import type { AgentEvent } from "../core/events.js";
+import type { WebEvent } from "./types.js";
 
-/** 服务器推给浏览器的所有事件：复用 agent 高层事件，另加审批与错误两类。 */
-export type WebEvent =
-  | AgentEvent
-  | {
-      type: "approval_requested";
-      requestId: string;
-      tool: string;
-      target: string;
-      args: Record<string, unknown>;
-    }
-  | { type: "error"; message: string };
+export type { AgentEvent, WebEvent } from "./types.js";
 
 /** 把一条事件序列化成 SSE 帧（event: <type> + data: <json>）。纯函数，便于单测。 */
 export function serializeEvent(event: WebEvent): string {

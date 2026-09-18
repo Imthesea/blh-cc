@@ -1,8 +1,8 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import * as path from "node:path";
-import type { PermissionRule } from "../security/rules.js";
-import type { ApprovalDecision, ApprovalRequest } from "../security/approval.js";
+import type { ApprovalDecision } from "./types.js";
 import type { WebEvent } from "./bridge.js";
+import type { ApprovalRequest, PermissionRule } from "./types.js";
 
 const RULES_FILE = "user-rules.json";
 

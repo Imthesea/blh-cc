@@ -2,11 +2,11 @@ import { mkdtempSync, rmSync } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { SessionManager, type TurnLock, type WebTurnRunner } from "../../src/server/session.js";
-import { SessionStore } from "../../src/session/store.js";
-import { ApprovalCoordinator } from "../../src/server/approval.js";
-import type { ChatMessage } from "../../src/core/types.js";
-import type { WebEvent } from "../../src/server/bridge.js";
+import { SessionManager } from "../src/session.js";
+import { ApprovalCoordinator } from "../src/approval.js";
+import type { ChatMessage, TurnLock, WebTurnRunner } from "../src/types.js";
+import type { WebEvent } from "../src/bridge.js";
+import { makeTestSessionStore } from "./helpers.js";
 
 function fakeLock(): TurnLock {
   return { withLock: async <T,>(fn: () => Promise<T>) => fn() };
@@ -31,7 +31,13 @@ afterEach(() => rmSync(tmpDir, { recursive: true, force: true }));
 describe("SessionManager", () => {
   it("create 建立会话并挂到 runner", () => {
     const runner = fakeRunner();
-    const manager = new SessionManager(runner, fakeLock(), () => {}, new ApprovalCoordinator(() => {}));
+    const manager = new SessionManager(
+      runner,
+      fakeLock(),
+      () => {},
+      new ApprovalCoordinator(() => {}),
+      makeTestSessionStore(),
+    );
     const handle = manager.create(tmpDir);
 
     expect(handle.messages).toEqual([{ role: "system", content: "sys" }]);
@@ -42,7 +48,13 @@ describe("SessionManager", () => {
 
   it("runTurn 在锁内跑轮次", async () => {
     const runner = fakeRunner();
-    const manager = new SessionManager(runner, fakeLock(), () => {}, new ApprovalCoordinator(() => {}));
+    const manager = new SessionManager(
+      runner,
+      fakeLock(),
+      () => {},
+      new ApprovalCoordinator(() => {}),
+      makeTestSessionStore(),
+    );
     const handle = manager.create(tmpDir);
 
     await manager.runTurn(handle.id, "hi");
@@ -52,8 +64,14 @@ describe("SessionManager", () => {
 
   it("resume 载入历史消息并继续同一文件", () => {
     const runner = fakeRunner();
-    const manager = new SessionManager(runner, fakeLock(), () => {}, new ApprovalCoordinator(() => {}));
-    const store = SessionStore.create(tmpDir);
+    const manager = new SessionManager(
+      runner,
+      fakeLock(),
+      () => {},
+      new ApprovalCoordinator(() => {}),
+      makeTestSessionStore(),
+    );
+    const store = manager.create(tmpDir).store;
     store.append({ role: "user", content: "old" });
 
     const handle = manager.resume(tmpDir, path.basename(store.path));
@@ -62,14 +80,20 @@ describe("SessionManager", () => {
   });
 
   it("resume 拒绝路径穿越", () => {
-    const manager = new SessionManager(fakeRunner(), fakeLock(), () => {}, new ApprovalCoordinator(() => {}));
+    const manager = new SessionManager(
+      fakeRunner(),
+      fakeLock(),
+      () => {},
+      new ApprovalCoordinator(() => {}),
+      makeTestSessionStore(),
+    );
     expect(() => manager.resume(tmpDir, "../etc/passwd")).toThrow("invalid session file");
   });
 
   it("approve 应答待审批请求", async () => {
     const events: WebEvent[] = [];
     const approvals = new ApprovalCoordinator((e) => events.push(e));
-    const manager = new SessionManager(fakeRunner(), fakeLock(), (e) => events.push(e), approvals);
+    const manager = new SessionManager(fakeRunner(), fakeLock(), (e) => events.push(e), approvals, makeTestSessionStore());
 
     const promise = approvals.ask({ tool: "bash", target: "ls", args: {} });
     const requestId = (events[0] as { requestId: string }).requestId;
@@ -78,7 +102,13 @@ describe("SessionManager", () => {
   });
 
   it("dispose 清空当前会话", () => {
-    const manager = new SessionManager(fakeRunner(), fakeLock(), () => {}, new ApprovalCoordinator(() => {}));
+    const manager = new SessionManager(
+      fakeRunner(),
+      fakeLock(),
+      () => {},
+      new ApprovalCoordinator(() => {}),
+      makeTestSessionStore(),
+    );
     const handle = manager.create(tmpDir);
     return manager.dispose(handle.id).then(() => {
       expect(manager.list()).toEqual([]);

@@ -10,7 +10,7 @@ import type { ChatMessage } from "../core/types.js";
 import { SessionStore } from "../session/store.js";
 import { createLogger } from "../core/logger.js";
 import type { ApprovalAsker, ApprovalDecision } from "../security/approval.js";
-import { startWebServer } from "../server/index.js";
+import { startWebServerFromCli } from "./web.js";
 import { buildHarness } from "./harness.js";
 
 export { buildHarness };
@@ -156,7 +156,7 @@ async function main(): Promise<void> {
     return;
   }
   if (web) {
-    const server = await startWebServer({
+    const server = await startWebServerFromCli({
       ...(workdir !== undefined ? { workdir } : {}),
       cli,
       ...(port !== undefined ? { port } : {}),
