@@ -16,7 +16,7 @@ export function SessionSidebar(props: {
     <aside className={`sidebar${collapsed ? " sidebar-collapsed" : ""}`}>
       <div className="logo-row">
         {!collapsed && (
-          <button type="button" className="brand" aria-label="新建会话" onClick={onNew}>
+          <button type="button" className="brand" onClick={onNew}>
             <span className="brand-identity">
               <span className="brand-mark">
                 <BlhLogo size={24} />
