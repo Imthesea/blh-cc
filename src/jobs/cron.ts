@@ -3,7 +3,7 @@
 import { randomBytes } from "node:crypto";
 import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import * as path from "node:path";
-import { createLogger } from "../core/logger.js";
+import { createLogger } from "@blh/logger";
 
 const log = createLogger("jobs.cron");
 

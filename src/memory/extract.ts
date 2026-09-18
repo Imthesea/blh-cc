@@ -3,7 +3,7 @@ import { readFileSync, readdirSync, unlinkSync, writeFileSync } from "node:fs";
 import type { ChatMessage, ChatProvider } from "../core/types.js";
 import { INDEX_NAME, MEMORY_TYPES, MemoryStore } from "./store.js";
 import { extractJsonArray, messageText } from "./text.js";
-import { createLogger } from "../core/logger.js";
+import { createLogger } from "@blh/logger";
 
 const log = createLogger("memory.extract");
 

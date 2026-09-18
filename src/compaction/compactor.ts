@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import * as path from "node:path";
 import type { ChatMessage, ChatProvider } from "../core/types.js";
-import { createLogger } from "../core/logger.js";
+import { createLogger } from "@blh/logger";
 
 const log = createLogger("compaction.compactor");
 

@@ -36,7 +36,7 @@ import { GoalController } from "../goals/controller.js";
 import { OpenAIWorkflowRunner } from "../workflow/runtime.js";
 import { WORKFLOWS } from "../workflow/registry.js";
 import { registerWorkflowTools } from "../workflow/tools.js";
-import { initLogger } from "../core/logger.js";
+import { initLogger } from "@blh/logger";
 
 export function buildHarness(
   workdir?: string,

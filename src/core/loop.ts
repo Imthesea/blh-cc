@@ -5,7 +5,7 @@ import { PRE_TOOL_USE, POST_TOOL_USE } from "./hooks.js";
 import { isPromptTooLong } from "../providers/openai.js";
 import type { GoalController } from "../goals/controller.js";
 import type { StopDecision } from "../goals/types.js";
-import { createLogger } from "./logger.js";
+import { createLogger } from "@blh/logger";
 
 const log = createLogger("core.loop");
 

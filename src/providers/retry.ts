@@ -1,4 +1,4 @@
-import { createLogger } from "../core/logger.js";
+import { createLogger } from "@blh/logger";
 
 const log = createLogger("providers.retry");
 

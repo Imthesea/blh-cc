@@ -9,7 +9,7 @@ import type {
   ToolDefinition,
 } from "../core/types.js";
 import { withRetry } from "./retry.js";
-import { createLogger } from "../core/logger.js";
+import { createLogger } from "@blh/logger";
 
 const log = createLogger("providers.openai");
 

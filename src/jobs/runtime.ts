@@ -1,7 +1,7 @@
 import type { ChatMessage } from "../core/types.js";
 import type { BackgroundManager } from "./background.js";
 import type { CronJob, CronScheduler } from "./cron.js";
-import { createLogger } from "../core/logger.js";
+import { createLogger } from "@blh/logger";
 
 const log = createLogger("jobs.runtime");
 

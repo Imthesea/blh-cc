@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      '@blh/logger':
+        specifier: workspace:*
+        version: link:packages/logger
       '@blh/web-server':
         specifier: workspace:*
         version: link:apps/web-server

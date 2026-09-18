@@ -1,4 +1,4 @@
-import { createLogger } from "./logger.js";
+import { createLogger } from "@blh/logger";
 
 const log = createLogger("core.events");
 

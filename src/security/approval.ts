@@ -1,6 +1,6 @@
 import type { PermissionRule } from "./rules.js";
 import { insertUserRule, matchRule } from "./rules.js";
-import { createLogger } from "../core/logger.js";
+import { createLogger } from "@blh/logger";
 
 const log = createLogger("security.approval");
 

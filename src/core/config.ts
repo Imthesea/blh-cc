@@ -4,7 +4,7 @@ import { readFileSync, statSync } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { Config } from "./types.js";
-import { createLogger } from "./logger.js";
+import { createLogger } from "@blh/logger";
 
 const log = createLogger("core.config");
 

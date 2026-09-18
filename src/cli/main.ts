@@ -8,7 +8,7 @@ import { lastAssistantText } from "../core/loop.js";
 import { repl, makeReadlineIO } from "./repl.js";
 import type { ChatMessage } from "../core/types.js";
 import { SessionStore } from "../session/store.js";
-import { createLogger } from "../core/logger.js";
+import { createLogger } from "@blh/logger";
 import type { ApprovalAsker, ApprovalDecision } from "../security/approval.js";
 import { startWebServerFromCli } from "./web.js";
 import { buildHarness } from "./harness.js";
