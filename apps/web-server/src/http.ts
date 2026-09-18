@@ -307,6 +307,22 @@ async function handleApi(
     return;
   }
 
+  if (method === "POST" && pathname === "/api/session/delete") {
+    const body = (await readBody(req)) as Record<string, unknown>;
+    const file = typeof body.file === "string" ? body.file : "";
+    if (file === "") {
+      json(res, 400, { error: "file is required" });
+      return;
+    }
+    if (path.basename(file) !== file || file === "." || file === "..") {
+      json(res, 400, { error: "invalid session file" });
+      return;
+    }
+    ctx.session.remove(ctx.workdir, file);
+    json(res, 200, { ok: true });
+    return;
+  }
+
   json(res, 404, { error: "not found" });
 }
 

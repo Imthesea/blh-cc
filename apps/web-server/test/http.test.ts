@@ -1,5 +1,5 @@
 import http from "node:http";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -202,6 +202,33 @@ describe("http 路由", () => {
     const { server, url } = await listen(makeContext(tmpDir));
     servers.push(server);
     const res = await fetch(`${url}/api/session/resume`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-blh-web": "1" },
+      body: JSON.stringify({ file: ".." }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("POST /api/session/delete 删除会话文件", async () => {
+    const { server, url } = await listen(makeContext(tmpDir));
+    servers.push(server);
+    const sessionsDir = path.join(tmpDir, ".sessions");
+    mkdirSync(sessionsDir, { recursive: true });
+    const target = path.join(sessionsDir, "session_del.jsonl");
+    writeFileSync(target, JSON.stringify({ role: "user", content: "x" }) + "\n");
+    const res = await fetch(`${url}/api/session/delete`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-blh-web": "1" },
+      body: JSON.stringify({ file: "session_del.jsonl" }),
+    });
+    expect(res.status).toBe(200);
+    expect(existsSync(target)).toBe(false);
+  });
+
+  it("POST /api/session/delete 拒绝路径穿越", async () => {
+    const { server, url } = await listen(makeContext(tmpDir));
+    servers.push(server);
+    const res = await fetch(`${url}/api/session/delete`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-blh-web": "1" },
       body: JSON.stringify({ file: ".." }),
