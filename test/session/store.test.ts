@@ -62,4 +62,12 @@ describe("SessionStore", () => {
     const store = SessionStore.open(path.join(tmpDir, "custom.jsonl"));
     expect(store.path).toBe(path.join(tmpDir, "custom.jsonl"));
   });
+
+  it("remove 删除指定会话文件，文件不存在时静默", () => {
+    const store = SessionStore.create(tmpDir);
+    expect(existsSync(store.path)).toBe(true);
+    SessionStore.remove(store.path);
+    expect(existsSync(store.path)).toBe(false);
+    expect(() => SessionStore.remove(store.path)).not.toThrow();
+  });
 });

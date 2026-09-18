@@ -1,4 +1,4 @@
-import { appendFileSync, mkdirSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { appendFileSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import * as path from "node:path";
 import type { ChatMessage } from "../core/types.js";
 
@@ -60,6 +60,11 @@ export class SessionStore {
   private static nameOrder(name: string): [number, number] {
     const match = /^session_(\d+)_(\d+)\.jsonl$/.exec(name);
     return match ? [Number(match[1]), Number(match[2])] : [-1, -1];
+  }
+
+  /** 删除指定会话文件；文件不存在时静默（幂等）。 */
+  static remove(filePath: string): void {
+    rmSync(filePath, { force: true });
   }
 
   /** 逐行 JSON.parse 还原消息数组；空行 / 非法 JSON 行跳过。 */
