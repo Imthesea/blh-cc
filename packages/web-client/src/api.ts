@@ -56,3 +56,11 @@ export async function resumeSession(file: string): Promise<string> {
     })
   ).sessionId;
 }
+
+export async function deleteSession(file: string): Promise<unknown> {
+  return request("/api/session/delete", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ file }),
+  });
+}
